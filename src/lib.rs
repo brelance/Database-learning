@@ -1,3 +1,4 @@
 mod sql;
-mod error;
-pub use error::Result;
+pub mod error;
+
+mod util;

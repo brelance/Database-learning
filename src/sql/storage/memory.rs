@@ -8,7 +8,7 @@ use std::ops::Index;
 use std::process::Child;
 use std::sync::Arc;
 use std::sync::RwLock;
-use crate::Result;
+use crate::error::Result;
 use std::mem;
 use super::Range;
 
@@ -61,11 +61,11 @@ impl DerefMut for Values {
 }
 
 impl Memory {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::new_with_order(DEFAULT_NODE_NUM)
     }
 
-    fn new_with_order(node_num: usize) -> Self {
+    pub fn new_with_order(node_num: usize) -> Self {
         Memory { 
             mem: Arc::new(RwLock::new(
                 Node::Root(Children::new(node_num)
