@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::num::NonZeroIsize;
+use std::ops::Bound;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::ops::Index;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use crate::Result;
 use std::mem;
+use super::Range;
 
 const DEFAULT_NODE_NUM: usize = 8;
 
@@ -85,6 +87,10 @@ impl Memory {
         Ok(())
     }
 
+    fn scan(&self, range: Range) -> Scan {
+        Box::new(Iter::new(self.mem.clone(), range))
+    }
+
 
 }
 
@@ -129,10 +135,47 @@ impl Node {
         match self {
             Node::Root(children) => {
                 children.delete(key);
+                while children.len() == 1 && matches!(children[0], Node::Inner(..)) {
+                    if let Node::Inner(c) = children.remove(0) {
+                        *children = c;
+                    }
+                }
+                if children.len() == 1 && children[0].size() == 0 {
+                    children.remove(0);
+                }
+
             }
 
             Node::Inner(children) => { children.delete(key) }
             Node::Leaf(values) => { values.delete(key) }
+        }
+    }
+
+    fn get_next(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+        match self {
+            Node::Leaf(value) => value.get_next(key),
+            Node::Inner(child) | Node::Root(child) => child.get_next(key),
+        }
+    }
+
+    fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+        match self {
+            Node::Leaf(value) => value.get_prev(key),
+            Node::Root(child) | Node::Inner(child) => child.get_prev(key),
+        }
+    }
+
+    fn get_last(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        match self {
+            Node::Leaf(value) => value.get_last(),
+            Node::Inner(child) | Node::Root(child) => child.get_last(),
+        }
+    }
+
+    fn get_first(&self) ->Option<(Vec<u8>, Vec<u8>)> {
+        match self {
+            Node::Leaf(value) => value.get_first(),
+            Node::Inner(child) | Node::Root(child) => child.get_first(),
         }
     }
 
@@ -164,6 +207,7 @@ impl Children {
         }
     }
 
+        //todo: replace key with ref
     fn set(&mut self, key: &[u8], val: Vec<u8>) -> Option<(Vec<u8>, Children)>{
         if self.is_empty() {
             let mut value= Values::with_capacity(self.capacity());
@@ -190,7 +234,7 @@ impl Children {
 
             let mut new_rnode = Children::new(self.capacity());
             new_rnode.extend(self.drain(split_at..));
-            new_rnode.keys.extend(self.keys.drain(self.capacity() - new_rnode.len() + 1..));
+            new_rnode.keys.extend(self.keys.drain(self.capacity() - new_rnode.len()..));
 
             let split_key = match insert_at.cmp(&split_at) {
                 Ordering::Equal => {
@@ -269,6 +313,52 @@ impl Children {
         
     }
 
+    fn get_next(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let (index, node) = self.lookup(key);
+        if let Some(val) = node.get_next(key) {
+            Some(val)
+        } else if index < self.len() - 1 {
+            self[index + 1].get_next(key)
+        } else {
+            None
+        }
+    }
+
+    fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let (index, node) = self.lookup(key);
+        if let Some(val) = node.get_prev(key) {
+            Some(val)
+        } else if index > 0 {
+            self[index - 1].get_prev(key)
+        } else {
+            None
+        }
+    }
+
+    fn get_first(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        if self.is_empty() {
+            return None;
+        }
+
+        self[0].get_first()
+    }
+
+    fn get_last(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        if self.is_empty() {
+            return None;
+        }
+
+        self[self.len() - 1].get_last()
+    }
+
     fn lookup(&self, key: &[u8]) -> (usize, &Node) {
         let id = self.keys.iter().position(|k| &**k > key).unwrap_or_else(|| self.keys.len() );
         (id, &self.nodes[id])
@@ -276,11 +366,13 @@ impl Children {
 
     fn lookup_mut(&mut self, key: &[u8]) -> (usize, &mut Node) {
         let id = self.keys.iter().position(|k| &**k > key).unwrap_or_else(|| self.keys.len());
+        println!("{}", id);
         (id, &mut self.nodes[id])
     }
 
     fn rotate_left(&mut self, index: usize) {
         match &mut self[index] {
+
             Node::Inner(child) => {
                 let (key, value) = (child.keys.remove(index), child.remove(index));
                 let kkey = std::mem::replace(&mut self.keys[index - 1], key);
@@ -429,42 +521,160 @@ impl Values {
         }
     }
 
+    //todo: return ref not clone
+    fn get_last(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        self.0.last().cloned()
+    }
+
+    fn get_first(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        self.0.first().cloned()
+    }
+
+    fn get_next(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+        self.iter().find_map(|(k, val)| {
+            match key.cmp(&**k) {
+                Ordering::Less => Some((k.to_vec(), val.to_vec())),
+                _ => None
+            }
+        })
+    }
+
+    fn get_prev(&self, key: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+        self.iter().rev().find_map(|(k, val)| {
+            match key.cmp(&**k) {
+                Ordering::Greater => Some((k.to_vec(), val.to_vec())),
+                _ => None,
+            }
+        })
+    }
+
+}
+
+pub type Scan = Box<dyn DoubleEndedIterator<Item = Result<(Vec<u8>, Vec<u8>)>> + Send>;
+
+struct Iter {
+    root: Arc<RwLock<Node>>,
+    range: Range,
+    front: Option<Vec<u8>>,
+    back: Option<Vec<u8>>,
+}
+
+impl Iter {
+    fn new(root: Arc<RwLock<Node>>, range: Range) -> Self {
+        Iter { root, range, front: None, back: None }
+    }
+
+    fn try_next(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+        let root = self.root.read()?;
+        let next = match &self.front {
+            None => {
+                match &self.range.start {
+                    Bound::Included(start) => { 
+                        root.get(start)
+                            .map(|val| (start.to_vec(), val))
+                            .or_else(||root.get_next(start))
+                    },
+                    Bound::Excluded(start) => root.get_next(start),
+                    Bound::Unbounded => root.get_first(),
+                }
+
+            }
+            Some(prev) => root.get_next(prev),
+        };
+
+        if let Some((k, _ )) = &next {
+            if !self.range.contained(&k) {
+                return Ok(None);
+            }
+            if let Some(bc) = &self.back {
+                if k > bc {
+                    return Ok(None);
+                }
+            }
+            self.front = Some(k.clone());
+        }
+        Ok(next)
+
+    }
+
+    fn try_next_back(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+        let root = self.root.read()?;
+        let next = match &self.back {
+            None => {
+                match &self.range.end {
+                    Bound::Included(key) => { 
+                        root.get(key)
+                        .map(|val| (key.to_vec(), val))
+                        .or_else(||root.get_prev(key))
+                     },
+                    Bound::Excluded(key) => root.get_prev(key),
+                    Bound::Unbounded => root.get_last(),
+                }
+            },
+            Some(key) => root.get_prev(key),
+        };
+        if let Some((k, _ )) = &next {
+            if !self.range.contained(&k) {
+                return Ok(None);
+            }
+            if let Some(fc) = &self.front {
+                if fc > k {
+                    return Ok(None);
+                }
+            }
+            self.back = Some(k.clone());
+        }
+        Ok(next)
+    }
+}
+
+impl Iterator for Iter {
+    type Item = Result<(Vec<u8>, Vec<u8>)>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.try_next().transpose()
+    }
+}
+
+impl DoubleEndedIterator for Iter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.try_next_back().transpose()
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use std::env;
+
     use super::*;
     use pretty_assertions::assert_eq;
-    
+
+
     #[test]
     fn set_test()  {
+        env::set_var("RUST_BACKTRACE", "1");
         let mut mem = Node::Root(Children::new(8));
-        mem.set(b"a", vec![0x11]);
-        mem.set(b"b", vec![0x12]);
-        mem.set(b"c", vec![0x13]);
-        mem.set(b"d", vec![0x14]);
+        let mut char = &mut [0x01];
+        let mut val = 0x11;
+        for i in 0..200 {
+            mem.set(char, vec![val]);
+            char[0] += 1;
+        }
 
-        assert_eq!(
-            Node::Root(
-                Children {
-                    keys: vec![],
-                    nodes: vec![Node::Leaf(Values(vec![
-                        (b"a".to_vec(), vec![0x11]),
-                        (b"b".to_vec(), vec![0x12]),
-                        (b"c".to_vec(), vec![0x13]),
-                        (b"d".to_vec(), vec![0x14]),
-                    ]))]
-                }
-            )
-            ,
-            mem
-        );
-
-        let value = mem.get(b"a");
+        let value = mem.get(&[145]);
         assert_eq!(value, Some(vec![0x11]));
     }
+    //#[test]
+    fn test() {
+        let mut mem = Node::Root(Children::new(8));
+        let mut key = &mut [1];
+        for i in 0..1000 {
+            key[0] += 1;
+        }
 
+    }
 }
+
+
 
 
 
