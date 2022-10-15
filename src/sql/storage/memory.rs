@@ -366,7 +366,6 @@ impl Children {
 
     fn lookup_mut(&mut self, key: &[u8]) -> (usize, &mut Node) {
         let id = self.keys.iter().position(|k| &**k > key).unwrap_or_else(|| self.keys.len());
-        println!("{}", id);
         (id, &mut self.nodes[id])
     }
 
