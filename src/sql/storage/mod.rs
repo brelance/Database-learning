@@ -3,6 +3,7 @@ pub use memory::Memory;
 // mod mvcc;
 use std::ops::{Bound, RangeBounds};
 pub mod coding;
+pub mod types;
 
 
 pub struct Range {
