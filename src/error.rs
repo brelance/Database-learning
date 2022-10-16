@@ -33,6 +33,13 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 
+impl From<Box<bincode::ErrorKind>> for Error {
+    fn from(err: Box<bincode::ErrorKind>) -> Self {
+        Error::Internal(err.to_string())
+    }
+}
+
+
 impl From<std::num::ParseIntError> for Error {
     fn from(err: std::num::ParseIntError) -> Self {
         Error::Parse(err.to_string()) 

@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::fmt::Display;
 use std::num::NonZeroIsize;
 use std::ops::Bound;
 use std::ops::Deref;
@@ -11,6 +12,7 @@ use std::sync::RwLock;
 use crate::error::Result;
 use std::mem;
 use super::Range;
+use super::Store;
 
 const DEFAULT_NODE_NUM: usize = 8;
 
@@ -60,6 +62,7 @@ impl DerefMut for Values {
     }
 }
 
+
 impl Memory {
     pub fn new() -> Self {
         Self::new_with_order(DEFAULT_NODE_NUM)
@@ -73,6 +76,10 @@ impl Memory {
         }
     }
 
+}
+
+impl Store for Memory {
+    
     fn set(&mut self, key: &[u8], val: Vec<u8>) -> Result<()> {
         self.mem.write()?.set(key, val);
         Ok(())
@@ -86,12 +93,21 @@ impl Memory {
         self.mem.write()?.delete(key);
         Ok(())
     }
+    
+    fn flush(&self) -> Result<()> {
+        Ok(())
+    }
 
     fn scan(&self, range: Range) -> Scan {
         Box::new(Iter::new(self.mem.clone(), range))
     }
 
+}
 
+impl Display for Memory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "memory")
+    }
 }
 
 impl Node {
@@ -661,6 +677,8 @@ mod test {
 
         let value = mem.get(&[145]);
         assert_eq!(value, Some(vec![0x11]));
+        mem.set(&[145], vec![0x56]);
+        assert_eq!(mem.get(&[145]), Some(vec![0x56]));
     }
     //#[test]
     fn test() {

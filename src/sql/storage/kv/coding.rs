@@ -1,5 +1,5 @@
 use crate::{error::{Error, Result}};
-use super::types::Value;
+use super::Value;
 
 pub fn encode_boolean(val: bool) -> u8 {
     match val {
@@ -50,7 +50,7 @@ pub fn take_bytes(bytes: &mut &[u8]) -> Result<Vec<u8>> {
                 Some((i, 0x00)) => break i + 1,
                 Some((_ , 0xff)) => decoded.push(0x00),
                 Some((_, b)) => return Err(Error::Value(format!("error decode bytes in {:?}", b))),
-                None => return Err(Error::Internal(("encode error".to_string()))),
+                None => return Err(Error::Internal("encode error".to_string())),
             }
             Some(b) => decoded.push(b),
             None => return Err(Error::Internal("encode error".to_string())),
@@ -112,6 +112,14 @@ pub fn decode_u64(bytes: [u8; 8]) -> u64 {
     u64::from_be_bytes(bytes)
 }
 
+pub fn take_u64(bytes: &mut &[u8]) -> Result<u64> {
+    if bytes.len() < 8 {
+        return Err(Error::Internal("error take_u64".to_string()));
+    }
+    let n = u64::from_be_bytes(bytes[0..8].try_into()?);
+    *bytes = &bytes[8..];
+    Ok(n)
+}
 pub fn encode_string(val: String) -> Vec<u8> {
     encode_bytes(val.as_bytes())
 }
