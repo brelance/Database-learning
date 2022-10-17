@@ -1,21 +1,13 @@
 mod memory;
 pub use memory::Memory;
 mod mvcc;
+pub use mvcc::Mode;
 pub mod coding;
 pub use coding::*;
 use std::{ops::{Bound, RangeBounds}, fmt::Display};
 use crate::error::Result;
-
 use self::memory::Scan;
-
-
-pub enum Value {
-    Null,
-    Boolean(bool),
-    Integer(i64),
-    Float(f64),
-    String(String),
-}
+use super::{Value, Datatype};
 
 
 pub trait Store: Display + Send + Sync {

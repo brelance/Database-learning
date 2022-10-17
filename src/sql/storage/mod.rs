@@ -1,23 +1,10 @@
 
 mod kv;
-pub enum Value {
-    Null,
-    Boolean(bool),
-    Integer(i64),
-    Float(f64),
-    String(String),
-}
 
+pub mod schema;
 
-pub trait Store {
-    fn set() {}
-
-    fn get() {} 
-
-    fn delete() {}
-
-    fn flush() {}
-
-    fn scan() {}
-}
-
+pub mod types;
+pub use types::{Value, Datatype};
+pub use super::Transcation;
+pub use kv::Mode;
+pub use schema::{Column, Table};

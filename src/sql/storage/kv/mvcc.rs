@@ -1,9 +1,10 @@
-use super::{Memory, Store, encode_u64, encode_bytes};
+use super::{Store, encode_u64, encode_bytes};
 use std::{borrow::Cow, collections::HashSet, sync::{Arc, RwLock, RwLockWriteGuard, RwLockReadGuard}, clone, mem};
 use super::{coding::*, Range};
 use crate::error::{Result, Error};
+use super::{Value};
 
-use serde::{Serialize, Deserialize, de::value};
+use serde::{Serialize, Deserialize};
 use serde_derive::{Serialize, Deserialize};
 
 
@@ -25,9 +26,16 @@ impl Mvcc {
         Transaction::resume(self.store.clone(), txn_id)
     }
 
-    pub fn set_metadata() {}
+    pub fn set_metadata(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
+        let mut session = self.store.write()?;
+        session.set(key, value);
+        Ok(())
+    }
 
-    pub fn get_metadata() {}
+    pub fn get_metadata(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let session = self.store.read()?;
+        session.get(key)
+    }
 
     pub fn status() {}
 }
@@ -37,8 +45,6 @@ impl Clone for Mvcc {
         Mvcc { store: self.store.clone() }
     }
 }
-
-
 
 struct Transaction {
     storage: Arc<RwLock<Box<dyn Store>>>,
@@ -116,8 +122,24 @@ impl Transaction {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>{
         let session = self.storage.read()?;
         let mut scan = 
-            session.scan(Range::from(Key::Record(key.into(), 0).encode()..=Key::Record(key.into(), self.id()).encode()));
+            session.scan(Range::from(Key::Record(key.into(), 0).encode()
+            ..=Key::Record(key.into(), self.id()).encode()))
+            .rev();
         
+        while let Some((k, v)) = scan.next().transpose()? {
+            match Key::decode(&k)? {
+                Key::Record(_ , version) => {
+                    if self.snapshot.is_visiable(version) {
+                        return deserialize(&v);
+                    }
+                }
+                k => return Err(Error::Internal(format!("Expected Txn::Record, got {:?}", k))),
+            };
+        }
+        Ok(None)
+    }
+
+    fn write(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
 
     }
 
@@ -167,7 +189,9 @@ impl Snapshot {
         }
     }
 
-    fn is_visiable() {}
+    fn is_visiable(&self, version: u64) -> bool {
+        version <= self.version && self.invisible.get(&version).is_none()
+    }
 }
 
 enum Key<'a> {
