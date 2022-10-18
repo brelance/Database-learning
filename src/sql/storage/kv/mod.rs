@@ -1,14 +1,14 @@
 mod memory;
 pub use memory::Memory;
 mod mvcc;
-pub use mvcc::Mode;
+pub use mvcc::{Mode, Mvcc};
 pub mod coding;
 pub use coding::*;
 use std::{ops::{Bound, RangeBounds}, fmt::Display};
 use crate::error::Result;
 use self::memory::Scan;
-use super::{Value, Datatype};
-
+use super::{Value, Datatype, engine::{Transaction, Catalog, Row, Tables}, Expression};
+pub mod kv;
 
 pub trait Store: Display + Send + Sync {
     fn set(&mut self, key: &[u8], val:Vec<u8>) -> Result<()>;

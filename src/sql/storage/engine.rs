@@ -1,4 +1,4 @@
-use super::{Mode, Value, Table};
+use super::{Mode, Value, Table, Expression};
 use crate::error::{Result, Error};
 use std::collections::HashSet;
 
@@ -19,14 +19,14 @@ pub trait Catalog {
     // fn get_references();
 }
 
-pub trait Transcation: Catalog {
+pub trait Transaction: Catalog {
     fn id(&self) -> u64;
 
     fn mode(&self) -> Mode;
 
     fn commit(self) -> Result<()>;
 
-    fn update(self) -> Result<()>;
+    fn update(&mut self, table: &str, id: &Value, row: Row) -> Result<()>;
 
     fn rollback(self) -> Result<()>;
 
@@ -38,15 +38,20 @@ pub trait Transcation: Catalog {
 
     fn read_index(&self, table: &str, column: &str, value: &Value) -> Result<HashSet<Value>>;
 
-    fn scan(&self, table: &str, columnL: &str) -> Result<IndexScan>;
+    fn scan(&self, table: &str, filter: Option<Expression>) -> Result<IndexScan>;
 
     fn scan_index(&self, table: &str, column: &str) -> Result<IndexScan>;
 
 }
 
-type Row = Vec<Value>;
-type Tables = Box<dyn DoubleEndedIterator<Item = Table> + Send>;
+// pub trait Engine: Clone {
+//     fn begin(&self, );
+//     fn resume();
+// }
+pub type Row = Vec<Value>;
 
-type IndexScan = Box<dyn DoubleEndedIterator<Item = Result<Row>> + Send>;
+pub type Tables = Box<dyn DoubleEndedIterator<Item = Table> + Send>;
+
+pub type IndexScan = Box<dyn DoubleEndedIterator<Item = Result<Row>> + Send>;
 
 

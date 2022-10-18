@@ -120,7 +120,7 @@ pub fn take_u64(bytes: &mut &[u8]) -> Result<u64> {
     *bytes = &bytes[8..];
     Ok(n)
 }
-pub fn encode_string(val: String) -> Vec<u8> {
+pub fn encode_string(val: &str) -> Vec<u8> {
     encode_bytes(val.as_bytes())
 }
 

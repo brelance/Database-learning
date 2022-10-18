@@ -39,6 +39,11 @@ impl From<Box<bincode::ErrorKind>> for Error {
     }
 }
 
+impl From<regex::Error> for Error {
+    fn from(err: regex::Error) -> Self {
+        Error::Value(err.to_string())
+    }
+}
 
 impl From<std::num::ParseIntError> for Error {
     fn from(err: std::num::ParseIntError) -> Self {

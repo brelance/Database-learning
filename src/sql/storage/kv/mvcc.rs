@@ -46,7 +46,7 @@ impl Clone for Mvcc {
     }
 }
 
-struct Transaction {
+pub struct Transaction {
     storage: Arc<RwLock<Box<dyn Store>>>,
     txn_id: u64,
     mode: Mode,
@@ -54,7 +54,7 @@ struct Transaction {
 }
 
 impl Transaction {
-    fn begin(store: Arc<RwLock<Box<dyn Store>>>, mode: Mode) -> Result<Self> {
+    pub fn begin(store: Arc<RwLock<Box<dyn Store>>>, mode: Mode) -> Result<Self> {
         let mut session = store.write()?;
         let txn_id: u64 = match session.get(&Key::TxnNext.encode())? {
             Some(id) => deserialize(&id)?,
@@ -80,7 +80,7 @@ impl Transaction {
         })
     }
 
-    fn resume(store: Arc<RwLock<Box<dyn Store>>>, id: u64) -> Result<Self>{
+    pub fn resume(store: Arc<RwLock<Box<dyn Store>>>, id: u64) -> Result<Self>{
         let session = store.read()?;
         let mut snapshot = Snapshot{version: 0, invisible: HashSet::new() };
         let (mode, snapshot) = if let Some(mode) = session.get(&Key::TxnActive(id).encode())? {
@@ -97,7 +97,7 @@ impl Transaction {
 
 
 
-    fn rollback(&self) -> Result<()> {
+    pub fn rollback(&self) -> Result<()> {
         let mut session = self.storage.write()?;
         let mut rollback = Vec::new();
         if self.mode.mutable() {
@@ -119,7 +119,7 @@ impl Transaction {
         Ok(())
     }
 
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>{
+    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>{
         let session = self.storage.read()?;
         let mut scan = 
             session.scan(Range::from(Key::Record(key.into(), 0).encode()
@@ -139,21 +139,21 @@ impl Transaction {
         Ok(None)
     }
 
-    fn write(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
+    pub fn write(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
 
     }
 
-    fn commit(self) -> Result<()>{
+    pub fn commit(self) -> Result<()>{
         let mut session = self.storage.write()?;
         session.delete(&Key::TxnActive(self.txn_id).encode())?;
         Ok(())
     }
 
-    fn id(&self) -> u64 {
+    pub fn id(&self) -> u64 {
         self.txn_id
     }
 
-    fn mode(&self) -> Mode {
+    pub fn mode(&self) -> Mode {
         self.mode.clone()
     }
     

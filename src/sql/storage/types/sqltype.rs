@@ -1,5 +1,6 @@
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum Value {
     Null,
     Boolean(bool),
@@ -19,6 +20,24 @@ impl Value {
         }
     }
 }
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            match self {
+                Self::Null => "NULL".to_string(),
+                Self::Boolean(b) if *b => "TRUE".to_string(),
+                Self::Boolean(_) => "FALSE".to_string(),
+                Self::Integer(i) => i.to_string(),
+                Self::Float(f) => f.to_string(),
+                Self::String(s) => s.clone(),
+            }
+            .as_ref(),
+        )  
+    }
+}
+
+
 
 #[derive(PartialEq, Eq)]
 pub enum Datatype{
