@@ -7,7 +7,11 @@ pub use coding::*;
 use std::{ops::{Bound, RangeBounds}, fmt::Display};
 use crate::error::Result;
 use self::memory::Scan;
-use super::{Value, Datatype, engine::{Transaction, Catalog, Row, Tables}, Expression};
+use super::{
+    Value, Datatype, 
+    engine::{Catalog, Row, Tables, IndexScan, KScan},
+    Expression,
+};
 pub mod kv;
 
 pub trait Store: Display + Send + Sync {

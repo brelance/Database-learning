@@ -16,7 +16,22 @@ pub trait Catalog {
         self.read_table(table_name)?.ok_or_else(|| Error::Value(format!("Table {} does not exist", table_name)))
     }
 
-    // fn get_references();
+    
+    fn table_references(&self, table_name: &str, with_self: bool) -> Result<Vec<(String, Vec<String>)>> {
+        Ok(self.scan_tables()?
+            .filter(|t| with_self || t.name != table_name)
+            .map(|t| {
+                (t.name,
+                t.columns
+                    .iter()
+                    .filter(|col| col.reference.as_deref() == Some(table_name))
+                    .map(|col| col.name.clone()).collect::<Vec<_>>(),
+                )
+            })
+            .filter(|(_, cs)| !cs.is_empty())
+            .collect()
+        )
+    }
 }
 
 pub trait Transaction: Catalog {
@@ -32,26 +47,24 @@ pub trait Transaction: Catalog {
 
     fn create(&mut self, table: &str, row: Row) -> Result<()>;
 
-    fn delete(&mut self, table: &str, id: &[Value]) -> Result<()>;
+    fn delete(&mut self, table: &str, id: &Value) -> Result<()>;
 
     fn read(&self, table: &str, id: &Value) -> Result<Option<Row>>;
 
     fn read_index(&self, table: &str, column: &str, value: &Value) -> Result<HashSet<Value>>;
 
-    fn scan(&self, table: &str, filter: Option<Expression>) -> Result<IndexScan>;
+    fn scan(&self, table: &str, filter: Option<Expression>) -> Result<KScan>;
 
     fn scan_index(&self, table: &str, column: &str) -> Result<IndexScan>;
 
 }
 
-// pub trait Engine: Clone {
-//     fn begin(&self, );
-//     fn resume();
-// }
 pub type Row = Vec<Value>;
 
 pub type Tables = Box<dyn DoubleEndedIterator<Item = Table> + Send>;
 
-pub type IndexScan = Box<dyn DoubleEndedIterator<Item = Result<Row>> + Send>;
+pub type KScan = Box<dyn DoubleEndedIterator<Item = Result<Row>> + Send>;
+
+pub type IndexScan = Box<dyn DoubleEndedIterator<Item = Result<(Value, HashSet<Value>)>> + Send>;
 
 

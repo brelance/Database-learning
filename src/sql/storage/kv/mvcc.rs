@@ -1,5 +1,5 @@
 use super::{Store, encode_u64, encode_bytes};
-use std::{borrow::Cow, collections::HashSet, sync::{Arc, RwLock, RwLockWriteGuard, RwLockReadGuard}, clone, mem};
+use std::{borrow::Cow, collections::HashSet, sync::{Arc, RwLock, RwLockWriteGuard, RwLockReadGuard}, clone, mem, ops::{RangeBounds, Bound}, iter::Peekable};
 use super::{coding::*, Range};
 use crate::error::{Result, Error};
 use super::{Value};
@@ -139,9 +139,81 @@ impl Transaction {
         Ok(None)
     }
 
-    pub fn write(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
-
+    pub fn set(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
+        self.write(key, Some(value))
     }
+
+    pub fn delete(&self, key: &[u8]) -> Result<()> {
+        self.write(key,None )
+    }
+
+    fn write(&self, key: &[u8], value: Option<Vec<u8>>) -> Result<()> {
+        if !self.mode.mutable() {
+            return Err(Error::ReadOnly);
+        }
+        let mut session = self.storage.write()?;
+        let min = self.snapshot.invisible.iter().min().cloned().unwrap();
+
+        let mut scan = 
+            session.scan(Range::from(Key::Record(key.into(), min).encode()..=Key::Record(key.into(), u64::MAX).encode()));
+        
+        while let Some((k, _ )) = scan.next().transpose()? {
+            match Key::decode(&k)? {
+                Key::Record(_, version) => {
+                    if !self.snapshot.is_visiable(version) {
+                        return Err(Error::Serialization);
+                    }
+                }
+                k => return Err(Error::Internal(format!("Expected Txn::Record, got {:?}", k))),
+            };
+        }
+        std::mem::drop(scan);
+        
+        let update = Key::TxnUpdate(self.txn_id, key.into()).encode();
+        let record = Key::Record(key.into(), self.txn_id).encode();
+        session.set(&update, vec![])?;
+        session.set(&record, serialize(&value)?)
+    }
+
+    pub fn scan(&self, range: impl RangeBounds<Vec<u8>>) -> Result<super::Scan> {
+        let start = match range.start_bound() {
+            Bound::Excluded(k) => Bound::Excluded(Key::Record(k.into(), std::u64::MAX).encode()),
+            Bound::Included(k) => Bound::Included(Key::Record(k.into(), 0).encode()),
+            Bound::Unbounded => Bound::Included(Key::Record(vec![].into(), 0).encode()),
+        };
+
+        let end = match range.end_bound() {
+            Bound::Excluded(k) => Bound::Excluded(Key::Record(k.into(), 0).encode()),
+            Bound::Included(k) => Bound::Included(Key::Record(k.into(), std::u64::MAX).encode()),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        let scan = self.storage.read()?.scan(Range::from((start, end)));
+        Ok(Box::new(Scan::new(scan, self.snapshot.clone())))
+    }
+
+    pub fn scan_prefix(&self, prefix: &[u8]) -> Result<super::Scan> {
+        if prefix.is_empty() {
+            return Err(Error::Internal("Scan prefix cannot be empty".into()));
+        }
+
+        let start = prefix.to_vec();
+        let mut end = start.clone();
+        for i in (0..end.len()).rev() {
+            match end[i] {
+                0xff if i == 0 => return Err(Error::Internal("Invalid prefix scan range".into())),
+                0xff => {
+                    end[i] = 0x00;
+                    continue;
+                }
+                v => {
+                    end[i] = v + 1;
+                    break;
+                }
+            }
+        }
+        self.scan(start..end)
+    }
+
 
     pub fn commit(self) -> Result<()>{
         let mut session = self.storage.write()?;
@@ -159,6 +231,7 @@ impl Transaction {
     
 }
 
+#[derive(Clone)]
 struct Snapshot {
     version: u64,
     invisible: HashSet<u64>,
@@ -194,6 +267,72 @@ impl Snapshot {
     }
 }
 
+pub struct Scan {
+    scan: Peekable<super::Scan>,
+    next_back_seen: Option<Vec<u8>>,
+}
+
+impl Scan {
+    fn new(mut scan: super::Scan, snapshot: Snapshot) -> Self {
+        scan = Box::new(scan.filter_map(move |r| {
+            r.and_then(|(k, v)| match Key::decode(&k)? {
+                Key::Record(_, version) if !snapshot.is_visiable(version) => Ok(None),
+                Key::Record(key, _) => Ok(Some((key.into_owned(), v))),
+                k => Err(Error::Internal(format!("Expected Record, got {:?}", k))),
+            })
+            .transpose()
+        }));
+        Self {scan: scan.peekable(), next_back_seen: None}
+    }
+
+    fn try_next(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+        while let Some((key, value)) = self.scan.next().transpose()? {
+            if match self.scan.peek() {
+                Some(Ok((peek_key, _))) if *peek_key != key => true,
+                Some(Ok(_)) => false,
+                Some(Err(err)) => return Err(err.clone()),
+                None => true,
+            } {
+                if let Some(value) = deserialize(&value)? {
+                    return Ok(Some((key, value)));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn try_next_back(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+
+        while let Some((key, value)) = self.scan.next_back().transpose()? {
+            if match &self.next_back_seen {
+                Some(seen_key) if *seen_key != key => true,
+                Some(_) => false,
+                None => true,
+            } {
+                self.next_back_seen = Some(key.clone());
+                if let Some(value) = deserialize(&value)? {
+                    return Ok(Some((key, value)));
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+impl Iterator for Scan {
+    type Item = Result<(Vec<u8>, Vec<u8>)>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.try_next().transpose()
+    }
+}
+
+impl DoubleEndedIterator for Scan {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.try_next_back().transpose()
+    }
+}
+
+#[derive(Debug)]
 enum Key<'a> {
     TxnNext,
     TxnActive(u64),

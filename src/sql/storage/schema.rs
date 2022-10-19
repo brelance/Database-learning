@@ -9,8 +9,8 @@ use super::Transaction;
 
 
 pub struct Table {
-    name: String,
-    columns: Vec<Column>,
+    pub name: String,
+    pub columns: Vec<Column>,
 }
 
 impl Table {
@@ -18,14 +18,14 @@ impl Table {
         Table { name, columns, }
     }
 
-    pub fn get_column(&self, col_name: String) -> Result<&Column> {
+    pub fn get_column(&self, col_name: &str) -> Result<&Column> {
         self.columns
             .iter()
             .find(|col| col.name == col_name )
             .ok_or_else(|| Error::Value(format!("cannot find column {} in table {}", col_name, self.name)))
     }
 
-    pub fn get_column_index(&self, col_name: &String) -> Result<usize> {
+    pub fn get_column_index(&self, col_name: &str) -> Result<usize> {
         self.columns
             .iter()
             .position(|col| &col.name == col_name)
@@ -81,21 +81,21 @@ impl Table {
 }
 
 pub struct Column {
-    name: String,
+    pub name: String,
 
-    datatype: Datatype,
+    pub datatype: Datatype,
 
-    primary_key: bool,
+    pub primary_key: bool,
 
-    nullalbe: bool,
+    pub nullalbe: bool,
 
-    default: Option<Value>,
+    pub default: Option<Value>,
 
-    unique: bool,
+    pub unique: bool,
 
-    reference: Option<String>,
+    pub reference: Option<String>,
 
-    index: bool,
+    pub index: bool,
 }
 
 impl Column {
