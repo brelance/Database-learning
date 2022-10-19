@@ -246,7 +246,7 @@ impl super::Catalog for Transaction {
                 table.name, t, cs[0]
             )));
         }
-        let scan = self.scan(table, None)?;
+        let mut scan = self.scan(table, None)?;
         while let Some(row) = scan.next().transpose()? {
             self.delete(&table.name, &table.get_row_key(&row)?)?
         }

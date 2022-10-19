@@ -8,3 +8,5 @@ pub mod types;
 pub use types::{Value, Datatype, Expression};
 pub use kv::Mode;
 pub use schema::{Column, Table};
+mod raftlog;
+pub use raftlog::LogStore;

@@ -1,9 +1,11 @@
 use std::fmt::Display;
 
+use serde_derive::{Serialize, Deserialize};
+
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Error {
     Abort,
     Config(String),
@@ -31,6 +33,14 @@ impl Display for Error {
 
 
 impl std::error::Error for Error {}
+
+
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Internal(err.to_string())
+    }
+}
 
 
 impl From<Box<bincode::ErrorKind>> for Error {
