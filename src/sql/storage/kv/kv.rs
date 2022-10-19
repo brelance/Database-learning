@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::{any::Any, borrow::Cow};
+use std::{borrow::Cow};
 use super::coding::*;
 use super::{Mvcc, Mode, mvcc, Row};
 use serde::{Deserialize, Serialize};
@@ -246,7 +246,7 @@ impl super::Catalog for Transaction {
                 table.name, t, cs[0]
             )));
         }
-        let mut scan = self.scan(table, None)?;
+        let scan = self.scan(table, None)?;
         while let Some(row) = scan.next().transpose()? {
             self.delete(&table.name, &table.get_row_key(&row)?)?
         }

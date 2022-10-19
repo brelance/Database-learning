@@ -136,7 +136,7 @@ pub fn encode_value(val: Value) -> Vec<u8> {
         Value::Boolean(b) => vec![0x01, encode_boolean(b)],
         Value::Integer(i) => [&[0x02][..], &encode_i64(i)].concat(),
         Value::Float(f) => [&[0x03][..], &encode_f64(f)].concat(),
-        Value::String(s) => [&[0x04][..], &encode_string(s)].concat(),
+        Value::String(s) => [&[0x04][..], &encode_string(s.as_str())].concat(),
     }
 }
 
