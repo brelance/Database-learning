@@ -3,8 +3,8 @@ use std::{borrow::Cow};
 use super::coding::*;
 use super::{Mvcc, Mode, mvcc, Row};
 use serde::{Deserialize, Serialize};
-use crate::sql::storage::{Column, Expression, engine};
-use crate::{error::{Error, Result}, sql::storage::{Catalog, Value, Table}};
+use crate::sql::storage::{Expression, engine::Transaction};
+use crate::{error::{Error, Result}, sql::storage::{Catalog, Value}};
 
 
 pub struct Kv {
@@ -27,23 +27,23 @@ impl Kv {
 
 impl Kv {
 
-    fn begin(&self, mode: Mode) -> Result<Transaction> {
-        Ok(Transaction::new(self.kv.begin_with_mode(mode)?))
+    fn begin(&self, mode: Mode) -> Result<Txn> {
+        Ok(Txn::new(self.kv.begin_with_mode(mode)?))
     }
 
-    fn resume(&self, txn_id: u64) -> Result<Transaction> {
-        Ok(Transaction::new(self.kv.resume(txn_id)?))
+    fn resume(&self, txn_id: u64) -> Result<Txn> {
+        Ok(Txn::new(self.kv.resume(txn_id)?))
     }
 
 }
 
-pub struct Transaction {
+pub struct Txn {
     txn: mvcc::Transaction,
 }
 
-impl Transaction {
+impl Txn {
     fn new(txn: mvcc::Transaction) -> Self {
-        Transaction { txn, }
+        Txn { txn, }
     }
 
     fn index_load(&self, table_name: &str, column: &str, value: &Value) -> Result<HashSet<Value>> {
@@ -64,7 +64,7 @@ impl Transaction {
     }
 }
 
-impl engine::Transaction for Transaction {
+impl Transaction for Txn {
     fn id(&self) -> u64 {
         self.txn.id()
     }
@@ -229,7 +229,7 @@ impl engine::Transaction for Transaction {
 }
 
 
-impl super::Catalog for Transaction {
+impl super::Catalog for Txn {
     fn creat_table(&mut self, table: crate::sql::storage::Table) -> Result<()> {
         if self.read_table(&table.name)?.is_some() {
             return Err(Error::Value(format!("Table {} already exists", table.name)));
@@ -246,11 +246,11 @@ impl super::Catalog for Transaction {
                 table.name, t, cs[0]
             )));
         }
-        let mut scan = self.scan(table, None)?;
+        let mut scan = self.scan(&table.name, None)?;
         while let Some(row) = scan.next().transpose()? {
             self.delete(&table.name, &table.get_row_key(&row)?)?
         }
-        self.txn.delete(&Key::Table(Some(table.name.into())).encode())s
+        self.txn.delete(&Key::Table(Some(table.name.into())).encode())
     }
 
     fn read_table(&self, table: &str) -> Result<Option<crate::sql::storage::Table>> {

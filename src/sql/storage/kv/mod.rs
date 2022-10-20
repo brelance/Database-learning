@@ -9,7 +9,7 @@ use crate::error::Result;
 use self::memory::Scan;
 use super::{
     Value, Datatype, 
-    engine::{Catalog, Row, Tables, IndexScan, KScan},
+    engine::{Catalog, Row, Tables, IndexScan, KScan, Transaction},
     Expression,
 };
 pub mod kv;

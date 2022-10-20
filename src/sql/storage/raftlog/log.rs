@@ -161,8 +161,7 @@ impl super::Store for LogStore {
         if start > end {
             return scan;
         }
-
-        // Scan committed entries in file
+        
         if let Some((offset, _)) = self.index.get(&start) {
             let mut file = self.file.lock().unwrap();
             file.seek(SeekFrom::Start(*offset - 4)).unwrap(); // seek to length prefix

@@ -1,5 +1,5 @@
 use std::fmt::format;
-
+use serde_derive::{Deserialize, Serialize};
 use super::Value;
 use super::Datatype;
 use super::engine::Row;
@@ -7,7 +7,7 @@ use crate::error::{Error, Result};
 use super::Transaction;
 
 
-
+#[derive(Deserialize, Serialize)]
 pub struct Table {
     pub name: String,
     pub columns: Vec<Column>,
@@ -80,6 +80,7 @@ impl Table {
     }
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct Column {
     pub name: String,
 
