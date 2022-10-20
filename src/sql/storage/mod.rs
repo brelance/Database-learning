@@ -10,3 +10,5 @@ pub use kv::Mode;
 pub use schema::{Column, Table};
 mod raftlog;
 pub use raftlog::Store;
+mod raft;
+use crate::raft::Client;

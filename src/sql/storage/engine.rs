@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 
 pub trait Catalog {
-    fn creat_table(&mut self, table: Table) -> Result<()>;
+    fn create_table(&mut self, table: Table) -> Result<()>;
     
     fn delete_table(&mut self, table_name: &str) -> Result<()>;
 

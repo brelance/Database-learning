@@ -69,7 +69,7 @@ pub enum Request {
     Status,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Response {
     State(Vec<u8>),
     Status(Status),

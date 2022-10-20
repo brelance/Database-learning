@@ -78,3 +78,15 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
         Error::Internal(err.to_string())
     }
 }
+
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for Error {
+    fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        Error::Internal(err.to_string())
+    }
+}
+
+impl From<tokio::sync::oneshot::error::RecvError> for Error {
+    fn from(err: tokio::sync::oneshot::error::RecvError) -> Self {
+        Error::Internal(err.to_string())
+    }
+}

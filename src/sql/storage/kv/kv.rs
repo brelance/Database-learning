@@ -230,7 +230,7 @@ impl Transaction for Txn {
 
 
 impl super::Catalog for Txn {
-    fn creat_table(&mut self, table: crate::sql::storage::Table) -> Result<()> {
+    fn create_table(&mut self, table: crate::sql::storage::Table) -> Result<()> {
         if self.read_table(&table.name)?.is_some() {
             return Err(Error::Value(format!("Table {} already exists", table.name)));
         }
