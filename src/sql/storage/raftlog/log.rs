@@ -77,8 +77,6 @@ impl LogStore {
             }
         }
     }
-
-    
 }
 
 impl super::Store for LogStore {
@@ -195,6 +193,10 @@ impl super::Store for LogStore {
 
     fn size(&self) -> u64 {
         self.index.iter().next_back().map(|(_, (pos, size))| *pos + *size as u64).unwrap()
+    }
+
+    fn commited(&self) -> u64 {
+        self.index.len() as u64
     }
 
     fn truncate(&mut self, index: u64) -> Result<u64> {

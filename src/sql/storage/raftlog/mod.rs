@@ -20,6 +20,8 @@ pub trait Store {
 
     fn size(&self) -> u64;
 
+    fn commited(&self) -> u64;
+
     fn truncate(&mut self, index: u64) -> Result<u64>;
 
     fn get_metadata(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
