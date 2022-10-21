@@ -1,11 +1,18 @@
 use super::{Store, encode_u64, encode_bytes};
 use std::{borrow::Cow, collections::HashSet, sync::{Arc, RwLock, RwLockWriteGuard, RwLockReadGuard}, clone, mem, ops::{RangeBounds, Bound}, iter::Peekable};
 use super::{coding::*, Range};
-use crate::error::{Result, Error};
+use crate::{error::{Result, Error}};
 use super::{Value};
 
 use serde::{Serialize, Deserialize};
 use serde_derive::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct Status {
+    pub txns: u64,
+    pub txns_active: u64,
+    pub storage: String,
+}
 
 
 
@@ -37,7 +44,22 @@ impl Mvcc {
         session.get(key)
     }
 
-    pub fn status() {}
+    pub fn status(&self) -> Result<Status> {
+        let store = self.store.read()?;
+        return Ok(
+            Status {
+                txns: match store.get(&Key::TxnNext.encode())? {
+                    Some(ref v) => deserialize(v)?,
+                    None => 1,
+                } - 1,
+                txns_active: store
+                .scan(Range::from(
+                    Key::TxnActive(0).encode()..Key::TxnActive(std::u64::MAX).encode(),
+                ))
+                .try_fold(0, |count, r| r.map(|_| count + 1))?,
+            storage: store.to_string(),     
+            });
+    }
 }
 
 impl Clone for Mvcc {

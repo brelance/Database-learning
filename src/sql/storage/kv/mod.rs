@@ -13,6 +13,7 @@ use super::{
     Expression,
 };
 pub mod kv;
+pub use kv::Kv;
 
 pub trait Store: Display + Send + Sync {
     fn set(&mut self, key: &[u8], val:Vec<u8>) -> Result<()>;

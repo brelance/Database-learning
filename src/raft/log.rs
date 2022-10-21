@@ -117,7 +117,7 @@ impl Log {
                     .map(|val| deserialize::<Entry>(&val))
                     .transpose()?
                     .map(|entry| (entry.index, entry.term))
-                    .ok_or_else(|| Error::Internal(format!("Entry {} not found", index)))?,
+                    .ok_or_else(|| Error::Internal(format!("Entry {} not found", index)))?
             },
         };
         self.last_index = index;

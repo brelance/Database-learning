@@ -8,30 +8,30 @@ use crate::{error::{Error, Result}, sql::storage::{Catalog, Value}};
 
 
 pub struct Kv {
-    kv: Mvcc,
+    pub kv: Mvcc,
 }
 
 impl Kv {
-    fn new(mvcc: Mvcc) -> Self {
+    pub fn new(mvcc: Mvcc) -> Self {
         Kv { kv: mvcc }
     }
 
-    fn set_metadata(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
+    pub fn set_metadata(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
         self.kv.set_metadata(key, value)
     }
 
-    fn get_metadata(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    pub fn get_metadata(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         self.kv.get_metadata(key)
     }
 }
 
 impl Kv {
 
-    fn begin(&self, mode: Mode) -> Result<Txn> {
+    pub fn begin(&self, mode: Mode) -> Result<Txn> {
         Ok(Txn::new(self.kv.begin_with_mode(mode)?))
     }
 
-    fn resume(&self, txn_id: u64) -> Result<Txn> {
+    pub fn resume(&self, txn_id: u64) -> Result<Txn> {
         Ok(Txn::new(self.kv.resume(txn_id)?))
     }
 
