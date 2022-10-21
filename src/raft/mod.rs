@@ -5,3 +5,4 @@ pub use node::Status;
 pub mod log;
 mod client;
 pub use client::Client;
+mod status;

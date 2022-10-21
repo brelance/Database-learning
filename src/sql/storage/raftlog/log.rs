@@ -1,6 +1,6 @@
 use std::sync::{Mutex, MutexGuard};
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::fs::{File, create_dir, create_dir_all, OpenOptions,};
+use std::fs::{File,create_dir_all, OpenOptions,};
 use std::path::Path;
 use std::io::{BufReader, Read, Seek, SeekFrom, BufWriter, Write};
 use crate::raft::log::Log;

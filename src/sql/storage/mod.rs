@@ -9,6 +9,6 @@ pub use types::{Value, Datatype, Expression};
 pub use kv::{Mode, Kv, Mvcc};
 pub use schema::{Column, Table};
 mod raftlog;
-pub use raftlog::Store;
+pub use raftlog::{Store, Range};
 mod raft;
 use crate::raft::Client;

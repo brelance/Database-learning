@@ -1,7 +1,9 @@
+use std::ops::RangeBounds;
+
 use regex::bytes;
 use serde_derive::{Deserialize, Serialize};
 use serde::{Serialize, Deserialize};
-use crate::Store;
+use crate::{Store, Range};
 use crate::error::{Error, Result};
 
 #[derive(Deserialize, Serialize)]
@@ -23,16 +25,18 @@ impl Key {
     }
 }
 
+pub type Scan<'a> = Box<dyn Iterator<Item = Result<Entry>> + 'a>;
+
 pub struct Log {
     store: Box<dyn Store>,
-    commited_index: u64,
-    commited_term: u64,
-    last_index: u64,
-    last_term: u64,
+    pub commited_index: u64,
+    pub commited_term: u64,
+    pub last_index: u64,
+    pub last_term: u64,
 }
 
 impl Log {
-    fn new(store: Box<dyn Store>) -> Result<Self> {
+    pub fn new(store: Box<dyn Store>) -> Result<Self> {
         let (commited_index, commited_term) = match store.commited() {
             0 => (0, 0),
             i => {
@@ -62,7 +66,7 @@ impl Log {
         })
     }
 
-    fn append(&mut self, term: u64, command: Option<Vec<u8>>) -> Result<Entry> {
+    pub fn append(&mut self, term: u64, command: Option<Vec<u8>>) -> Result<Entry> {
         let entry = Entry {index: self.last_index + 1, term, command,};
         self.store.append(serialize(&entry)?);
         self.last_index = self.last_index + 1;
@@ -70,7 +74,7 @@ impl Log {
         Ok(entry)
     }
 
-    fn commit(&mut self, index: u64) -> Result<u64> {
+    pub fn commit(&mut self, index: u64) -> Result<u64> {
         let entry = self
             .get(index)?
             .ok_or_else(|| Error::Internal(format!("Entry {} not found", index)))?;
@@ -80,7 +84,7 @@ impl Log {
         Ok(index)
     }
 
-    fn get(&self, index: u64) -> Result<Option<Entry>> {
+    pub fn get(&self, index: u64) -> Result<Option<Entry>> {
         self.store
             .get(index)?
             .map(|val| deserialize::<Entry>(&val))
@@ -136,6 +140,20 @@ impl Log {
             .transpose()?
             .unwrap_or((0, None));
         Ok((term, voted_for))
+    }
+
+    pub fn has(&self, index: u64, term: u64) -> Result<bool> {
+        match self.get(index)? {
+            Some(index) => Ok(index.term == term),
+            None if index == 0 && term == 0 => Ok(true),
+            None => Ok(false),
+        }
+    }
+
+    pub fn scan(&self, range: impl RangeBounds<u64>) -> Scan {
+        Box::new(self.store
+                .scan(Range::from(range)))
+                .map(|r| r.and_then(|v| deserialize(&v))))
     }
 
 

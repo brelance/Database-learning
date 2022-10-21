@@ -2,7 +2,7 @@ mod log;
 use std::ops::{Bound, RangeBounds};
 
 pub use crate::error::{Error, Result};
-pub use log::LogStore;
+pub use self::log::LogStore;
 
 use self::log::Scan;
 
@@ -36,7 +36,7 @@ pub struct Range {
 }
 
 impl Range {
-    fn from(range: impl RangeBounds<u64>) -> Self {
+    pub fn from(range: impl RangeBounds<u64>) -> Self {
         Self {
             start: match range.start_bound() {
                 Bound::Excluded(v) => Bound::Excluded(*v),
