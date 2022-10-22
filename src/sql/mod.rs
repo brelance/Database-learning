@@ -1,3 +1,3 @@
 mod storage;
 mod parser;
-pub use storage::{Store, Range};
+pub use storage::{Store, Range, State};

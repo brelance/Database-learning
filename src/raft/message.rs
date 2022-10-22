@@ -3,7 +3,7 @@ use super::{log::Entry, Status};
 use crate::error::{Result, Error};
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum Address {
     Peers,
     Peer(String),
@@ -12,7 +12,7 @@ pub enum Address {
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct  Message {
     pub term: u64,
     pub from: Address,

@@ -1,7 +1,12 @@
 use std::collections::HashMap;
+use log::info;
 use serde_derive::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use super::{log::Log, message::{Message, Address, Event}, status::Instruction};
+use super::{
+    log::Log, 
+    message::{Message, Address, Event}, status::Instruction,
+    status::Driver
+};
 mod candidate;
 use candidate::Candidate;
 mod follower;
@@ -9,6 +14,7 @@ use follower::Follower;
 mod leader;
 use leader::Leader;
 use crate::error::{Error, Result};
+use crate::State;
 
 const HEARTBEAT_INTERVAL: u64 = 1;
 const ELECTION_TIMEOUT_MIN: u64 = 8 * HEARTBEAT_INTERVAL;
@@ -32,6 +38,59 @@ pub enum Node {
     Leader(RoleNode<Leader>),
     Candidate(RoleNode<Candidate>),
     Follower(RoleNode<Follower>),
+}
+
+impl Node {
+    pub async fn new(
+        id: &str,
+        peers: Vec<String>,
+        log: Log,
+        mut state: Box<dyn State>,
+        node_tx: mpsc::UnboundedSender<Message>,
+    ) -> Result<Self> {
+        let applied_index = state.applied_index();
+        if applied_index > log.commited_index {
+            return Err(Error::Internal(format!(
+                "State machine applied index {} greater than log commited index {}",
+                applied_index, log.commited_index
+            )));
+        }
+        let (state_tx, state_rx) = mpsc::unbounded_channel();
+        let mut driver = Driver::new(state_rx, node_tx);
+        if log.commited_index > applied_index {
+            info!("Replaying log entries {} to {}", applied_index + 1, log.commited_index);
+            driver.replay(&mut *state, log.scan((applied_index + 1)..=log.commited_index))?;
+        }
+        tokio::spawn(driver.driver(state));
+        let (term, voted_for) = log.load_term()?;
+        let node = RoleNode {
+            id: id.to_owned(),
+            peers,
+            term,
+            log,
+            node_tx,
+            state_tx,
+            queued_reqs: Vec::new(),
+            proxied_reqs: HashMap::new(),
+            role: Follower::new(None, voted_for.as_deref()),
+        };
+        if node.peers.is_empty() {
+            info!("No peers specified, starting as leader");
+            let last_index = node.log.last_index;
+            Ok(node.become_role(Leader::new(vec![], last_index))?.into())
+        } else {
+            Ok(node.into())
+        }
+
+    }
+
+    pub fn id(&self) -> String {
+        match self {
+            Node::Candidate(n) => n.id.clone(),
+            Node::Follower(n) => n.id.clone(),
+            Node::Leader(n) => n.id.clone(),
+        }
+    } 
 }
 
 
@@ -64,7 +123,7 @@ impl<R> RoleNode<R> {
             })
     }
 
-    fn send(mut self, to: Address, event: Event) -> Result<()> {
+    fn send(mut self, to: Addrwess, event: Event) -> Result<()> {
         let msg = Message {
             term: self.term,
             from: Address::Local,
@@ -89,7 +148,34 @@ impl<R> RoleNode<R> {
         {
             return Err(Error::Internal(format!("Message from past term {}", msg.term)));
         }
+        match &msg.to {
+            Address::Peer(id) if id == &self.id => Ok(()),
+            Address::Local => Ok(()),
+            Address::Peers => Ok(()),
+            Address::Peer(id) => {
+                Err(Error::Internal(format!("Received message for other node {}", id)))
+            }
+            Address::Client => Err(Error::Internal("Received message for client".into())),
+        }
     }
 
 
+}
+
+impl From<RoleNode<Candidate>> for Node {
+    fn from(rn: RoleNode<Candidate>) -> Self {
+        Node::Candidate(rn)
+    }
+}
+
+impl From<RoleNode<Leader>> for Node {
+    fn from(rn: RoleNode<Leader>) -> Self {
+        Node::Leader(rn)
+    }
+}
+
+impl From<RoleNode<Follower>> for Node {
+    fn from(rn: RoleNode<Follower>) -> Self {
+        Node::Follower(rn)
+    }
 }

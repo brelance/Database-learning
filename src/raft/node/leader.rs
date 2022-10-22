@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use log::info;
+use log::{info, warn};
 
 use crate::{
     error::{Error, Result},
@@ -89,12 +89,49 @@ impl RoleNode<Leader> {
     }
 
     pub fn step(mut self, msg: Message) -> Result<Node> {
+        if let Err(err) = self.validate(&msg) {
+            warn!("Ignoring invalid message: {}", err);
+            return Ok(self.into());
+        }
+        if msg.term > self.term {
+            if let Address::Peer(from) = &msg.from {
+                return self.become_follower(msg.term, leader)
+            }
+        }
 
+        match msg.event {
+            Event::ConfirmLeader { commit_index, has_commited } => {
+                if let Address::Peer(from) = msg.from.clone() {
+                    self.state_tx.send(Instruction::Vote {
+                         term: msg.term, index: commit_index, address: msg.from,
+                        })?
+                }
+                if !has_commited {
+                    self.replicate(&from)?;
+                }
+            }
+        }
 
     }
 
     fn quorum(&self) -> usize {
         (self.peers.len() + 1) / 2 + 1
+    }
+
+    pub fn tick(mut self) -> Result<Node> {
+        if !self.peers.is_empty() {
+            self.role.heart_ticks += 1;
+            if self.role.heart_ticks >= HEARTBEAT_INTERVAL {
+                self.role.heart_ticks = 0;
+                self.send(
+                    Address::Peers, 
+                    Event::Heartbeat { 
+                        commit_index: self.log.commited_index,
+                        commit_term: self.log.commited_term,
+                    })?;
+            }
+        }
+        Ok(self.into())
     }
 }
 

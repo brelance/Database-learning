@@ -209,7 +209,7 @@ impl State {
     }
 }
 
-impl State {
+impl super::State for State {
     fn applied_index(&self) -> u64 {
         self.applied_index
     }
@@ -261,5 +261,6 @@ impl State {
     }
 
 }
+
 
 
