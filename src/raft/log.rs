@@ -28,7 +28,7 @@ impl Key {
 pub type Scan<'a> = Box<dyn Iterator<Item = Result<Entry>> + 'a>;
 
 pub struct Log {
-    store: Box<dyn Store>,
+    pub store: Box<dyn Store>,
     pub commited_index: u64,
     pub commited_term: u64,
     pub last_index: u64,

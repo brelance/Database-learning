@@ -3,10 +3,10 @@ use log::{info, warn};
 
 use crate::{
     error::{Error, Result},
-    raft::{status::Instruction, message::{Message, Event, Address}}
+    raft::{status::Instruction, message::{Message, Event, Address, Request, Response}}
 };
 
-use super::{HEARTBEAT_INTERVAL, RoleNode, follower::Follower};
+use super::{HEARTBEAT_INTERVAL, RoleNode, follower::Follower, Status};
 
 pub struct Leader {
     heart_ticks: u64,
@@ -100,6 +100,7 @@ impl RoleNode<Leader> {
         }
 
         match msg.event {
+
             Event::ConfirmLeader { commit_index, has_commited } => {
                 if let Address::Peer(from) = msg.from.clone() {
                     self.state_tx.send(Instruction::Vote {
@@ -109,6 +110,88 @@ impl RoleNode<Leader> {
                 if !has_commited {
                     self.replicate(&from)?;
                 }
+            },
+
+            Event::AcceptEntries { last_index } => {
+                if let Address::Peer(from) = msg.from {
+                    self.role.peer_last_index.insert(from.clone(), last_index);
+                    self.role.peer_next_index.insert(from.clone(), last_index + 1);
+                }
+                self.commit()?;
+            },
+
+            Event::RejectEntries => {
+                if let Address::Peer(from) = msg.from {
+                    self.role.peer_next_index.entry(from.clone()).and_modify(
+                        |i| {
+                            if *i > 1 {
+                                *i -= 1
+                            }
+                        }
+                    );
+                }
+                self.replicate(&from)?;
+            },
+
+            Event::ClientRequest { id, request: Request:: Query(command) } => {
+                self.state_tx.send(Instruction::Query {
+                    id,
+                    address: msg.from,
+                    command,
+                    term: self.term,
+                    index: self.log.commited_index,
+                    quorum: self.quorum()
+                })?;
+                self.state_tx.send(
+                    Instruction::Vote {
+                        term: self.term, 
+                        index: self.log.commited_index, 
+                        address: Address::Local 
+                })?;
+                if !self.peers.is_empty() {
+                    self.send(
+                        Address::Peers, 
+                        Event::Heartbeat {
+                            commit_index: self.log.commited_index, 
+                            commit_term: self.log.commited_term
+                        }
+                    )?;
+                }
+            },
+
+            Event::ClientRequest { id, request: Request::Mutate(command) } => {
+                let index = self.append(Some(command))?;
+                self.state_tx.send(Instruction::Notify { id, address: msg.from, index, })?;
+                if self.peers.is_empty() {
+                    self.commit()?
+                }
+            },
+
+            Event::ClientRequest { id, request: Request::Status } => {
+                let mut status = Box::new(Status {
+                    server: self.id.clone(),
+                    leader: self.id.clone(),
+                    term: self.term,
+                    node_last_index: self.role.peer_last_index.clone(),
+                    commit_index: self.log.commited_index,
+                    apply_index: 0,
+                    storage: self.log.store.to_string(),
+                    storage_size: self.log.store.size(),
+                });
+                status.node_last_index.insert(self.id.clone(), self.log.last_index);
+                self.state_tx.send(Instruction::Status { id, address, status, })?
+            }
+
+            Event::ClientResponse { id, mut response } => {
+                if let Ok(Response::Status(ref mut status)) = response {
+                    status.server = self.id.clone();
+                }
+                self.send(Address::Client, Event::ClientResponse { id, response, })?;
+            },
+
+            Event::SolicitVote { .. } | Event::GrantVote => {},
+            Event::Heartbeat { .. } | Event::ReplicateEntries { .. } => {
+                warn!("Received unexpected message {:?}", msg)
             }
         }
 

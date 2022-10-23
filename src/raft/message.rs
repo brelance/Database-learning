@@ -60,6 +60,11 @@ pub enum Event {
         id: Vec<u8>,
         response: Result<Response>,
     },
+
+    SolicitVote {
+        last_index: u64,
+        last_term: u64,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
