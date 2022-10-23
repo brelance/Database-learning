@@ -2,7 +2,7 @@ use log::{warn, info, debug};
 use rand::Rng;
 use regex::bytes::ReplacerRef;
 
-use crate::raft::{message::{Address, Message, Event}, node::candidate::Candidate};
+use crate::raft::{message::{Address, Message, Event, Response, Request}, node::candidate::Candidate};
 
 use super::{leader, ELECTION_TIMEOUT_MIN, ELECTION_TIMEOUT_MAX, RoleNode};
 
@@ -92,7 +92,27 @@ impl RoleNode<Follower> {
                     }
                 }
                 self.send(msg.from, Event::ConfirmLeader { commit_index, has_commited })
-            }
+            },
+
+            Event::SolicitVote { last_index, last_term } => {
+                if let Some(voted_for) = &self.role.voted_for {
+                    if msg.from != Address::Peer(voted_for.clone()) {
+                        return Ok(self.into());
+                    }
+                }
+                if last_term < self.log.last_term {
+                    return Ok(self.into());
+                }
+                if last_term == self.log.last_term && last_index < self.log.last_index {
+                    return Ok(self.into())
+                }
+                if Address::Peer(from) = msg.from {
+                    info!("Voting for {} in term {} election", from, self.term);
+                    self.send(Address::Peer(from.clone()), Event::GrantVote)?;
+                    self.log.save_term(self.term, Some(&from))?;
+                    self.role.voted_for = Some(from);
+                }
+            },
 
             Event::ReplicateEntries { base_index, bas_term, entries } => {
                 if self.is_leader(&msg.from) {
@@ -104,7 +124,7 @@ impl RoleNode<Follower> {
                         self.send(msg.from, Event::AcceptEntries { last_index, })?;
                     }
                 }
-            }
+            },
 
             Event::ClientRequest { ref id, .. } => {
                 if let Some(leader) = self.role.leader.as_deref() {
@@ -114,8 +134,22 @@ impl RoleNode<Follower> {
                     self.queued_reqs.insert(msg.from, msg.event);
                 }
             },
-        }
-        Ok(())
+
+            Event::ClientResponse { id, mut response } => {
+                if let Ok(Response::Status(ref mut status)) = response {
+                    status.server = self.id.clone();
+                }
+                self.proxied_reqs.remove(&id);
+                self.send(to, event)
+            },
+
+            Event::GrantVote => {},
+
+            Event::ConfirmLeader { .. }
+            | Event::AcceptEntries { .. }
+            | Event::RejectEntries { .. } => warn!("Received unexpected message {:?}", msg),
+        };
+        Ok(self.into())
     }
 
     pub fn tick(mut self) -> Result<Node> {

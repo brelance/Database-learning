@@ -32,11 +32,6 @@ pub enum Event {
         has_commited: bool,
     },
 
-    RequestVote {
-        las_index: u64,
-        last_term: u64,
-    },
-
     GrantVote,
 
     ReplicateEntries {

@@ -159,6 +159,37 @@ impl<R> RoleNode<R> {
         }
     }
 
+    fn abort_proxied(&mut self) -> Result<()> {
+        for (id, address) in std::mem::take(&mut self.proxied_reqs) {
+            self.send(address, Event::ClientResponse { id, response: Err(Error::Abort) })?;
+        }
+        Ok(())
+    }
+
+    fn forward_queued(&mut self, leader: Address) -> Result<()> {
+        for (from, event) in std::mem::take(&mut self.queued_reqs) {
+            if let Event::ClientRequest { id, .. } = &event {
+                self.proxied_reqs.insert(id.clone(), from.clone());
+                self.node_tx.send(
+                    Message {
+                        term: 0,
+                        from: match from {
+                            Address::Client => Address::Local,
+                            address => address,
+                        },
+                        to: leader.clone(),
+                        event,
+                    }
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn quorum(&self) -> u64 {
+        (self.peers.len as u64 + 1) / 2 + 1
+    }
+
 
 }
 

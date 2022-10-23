@@ -39,6 +39,18 @@ impl Driver {
         }
     }
 
+    pub async fn drive(mut self, mut state: Box<dyn State>) -> Result<()> {
+        debug!("Starting state machine driver");
+        while let Some(instruction) = self.state_rx.next().await {
+            if let Err(error) = self.execute(instruction, &mut *state).await {
+                error!("Halting state machine due to error: {}", error);
+                return Err(error);
+            }
+        }
+        debug!("Stopping state machine driver");
+        Ok(())
+    }
+
     pub fn replay<'a>(&mut self, state: &mut dyn State, mut scan: Scan<'a>) -> Result<()> {
         while let Some(entry) = scan.next().transpose()? {
             debug!("Replaying {:?}", entry);
@@ -55,6 +67,10 @@ impl Driver {
     pub async fn driver(&self, state: Box<dyn State>) -> Result<()> {
         debug!("Executing {:?}", i);
         match i {
+            Instruction::Abort => {
+                self.notify_abort()?;
+                self.query_abort()?;
+            },
 
             Instruction::Apply { entry: Entry { index, command, ..} } => {
                 if let Some(command) = command {
@@ -88,7 +104,35 @@ impl Driver {
                 self.query_vote(term, index, address);
                 self.query_execute(&mut state)?;
             },
+
+            Instruction::Status { id, address, mut status } => {
+                status.apply_index = state.applied_index();
+                self.send(
+                    address,
+                    Event::ClientResponse { id, response: Ok(Response::Status(*status)) },
+                )?;
+            }
         }
+        Ok(())
+    }
+
+    fn notiry_abort(&mut self) -> Result<()> {
+        for (_, (address, id)) in std::mem::take(&mut self.notify) {
+            self.send(address, Event::ClientResponse { id, response: Err(Error::Abort) })?;
+        }
+        Ok(())
+    }
+
+    fn query_abort(&mut self) -> Result<()> {
+        for (_, queries) in std::mem::take(&mut self.queries) {
+            for (id, query) in queries {
+                self.send(
+                    query.address,
+                    Event::ClientResponse { id, response: Err(Error::Abort) },
+                )?;
+            }
+        }
+        Ok(())
     }
 
     fn notify_applied(&mut self, index: u64, result: Result<Vec<u8>>) -> Result<()> {

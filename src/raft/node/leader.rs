@@ -194,6 +194,7 @@ impl RoleNode<Leader> {
                 warn!("Received unexpected message {:?}", msg)
             }
         }
+        Ok(self.into())
 
     }
 
