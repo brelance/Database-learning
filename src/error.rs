@@ -90,3 +90,10 @@ impl From<tokio::sync::oneshot::error::RecvError> for Error {
         Error::Internal(err.to_string())
     }
 }
+
+impl<T> From<tokio::sync::mpsc::error::TrySendError<T>> for Error {
+    fn from(err: tokio::sync::mpsc::error::TrySendError<T>) -> Self {
+        Error::Internal(err.to_string())
+    }
+}
+

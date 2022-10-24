@@ -1,12 +1,11 @@
 use std::ops::RangeBounds;
 
-use regex::bytes;
 use serde_derive::{Deserialize, Serialize};
 use serde::{Serialize, Deserialize};
 use crate::{Store, Range};
 use crate::error::{Error, Result};
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Entry {
     pub index: u64,
     pub term: u64,
@@ -152,8 +151,9 @@ impl Log {
 
     pub fn scan(&self, range: impl RangeBounds<u64>) -> Scan {
         Box::new(self.store
-                .scan(Range::from(range)))
-                .map(|r| r.and_then(|v| deserialize(&v))))
+                .scan(Range::from(range))
+                .map(|r| r.and_then(|v| deserialize(&v))
+            ))
     }
 
 

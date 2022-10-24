@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use super::{
     log::Log, 
     message::{Message, Address, Event}, status::Instruction,
@@ -22,7 +23,7 @@ const ELECTION_TIMEOUT_MAX: u64 = 15 * HEARTBEAT_INTERVAL;
 
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
     pub server: String,
     pub leader: String,
@@ -56,12 +57,13 @@ impl Node {
             )));
         }
         let (state_tx, state_rx) = mpsc::unbounded_channel();
-        let mut driver = Driver::new(state_rx, node_tx);
+        let state_rx = UnboundedReceiverStream::new(state_rx);
+        let mut driver = Driver::new(state_rx, node_tx.clone());
         if log.commited_index > applied_index {
             info!("Replaying log entries {} to {}", applied_index + 1, log.commited_index);
             driver.replay(&mut *state, log.scan((applied_index + 1)..=log.commited_index))?;
         }
-        tokio::spawn(driver.driver(state));
+        tokio::spawn(driver.drive(state));
         let (term, voted_for) = log.load_term()?;
         let node = RoleNode {
             id: id.to_owned(),
@@ -91,6 +93,22 @@ impl Node {
             Node::Leader(n) => n.id.clone(),
         }
     } 
+
+    pub fn step(mut self, message: Message) -> Result<Self> {
+        match self {
+            Node::Candidate(n) => n.step(message),
+            Node::Follower(n) => n.step(message),
+            Node::Leader(n) => n.step(message),
+        }
+    }
+
+    pub fn tick(self) -> Result<Self> {
+        match self {
+            Node::Candidate(n) => n.tick(),
+            Node::Follower(n) => n.tick(),
+            Node::Leader(n) => n.tick(),
+        }
+    }
 }
 
 
@@ -123,7 +141,7 @@ impl<R> RoleNode<R> {
             })
     }
 
-    fn send(mut self, to: Addrwess, event: Event) -> Result<()> {
+    fn send(&self, to: Address, event: Event) -> Result<()> {
         let msg = Message {
             term: self.term,
             from: Address::Local,
@@ -187,7 +205,7 @@ impl<R> RoleNode<R> {
     }
 
     fn quorum(&self) -> u64 {
-        (self.peers.len as u64 + 1) / 2 + 1
+        (self.peers.len() as u64 + 1) / 2 + 1
     }
 
 

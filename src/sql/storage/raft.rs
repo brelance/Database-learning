@@ -65,7 +65,7 @@ impl super::Transaction for RaftTxn {
     }
 
     fn mode(&self) -> Mode {
-        self.mode
+        self.mode.clone()
     }
 
     fn commit(self) -> Result<()> {

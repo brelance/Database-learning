@@ -6,7 +6,7 @@ use crate::{
     raft::{status::Instruction, message::{Message, Event, Address, Request, Response}}
 };
 
-use super::{HEARTBEAT_INTERVAL, RoleNode, follower::Follower, Status};
+use super::{HEARTBEAT_INTERVAL, RoleNode, follower::Follower, Status, Node};
 
 pub struct Leader {
     heart_ticks: u64,
@@ -59,20 +59,20 @@ impl RoleNode<Leader> {
             None if base_index == 0 => 0,
             None => return Err(Error::Internal(format!("Missing base entry {}", base_index))),
         };
-        let entries = self.log.scan(peer_next..).collect::<Result<Vec<_>>>()?;
+        let entries = self.log.scan(index..).collect::<Result<Vec<_>>>()?;
         self.send(
             Address::Peer(peer.to_string()),
-            Event::ReplicateEntries { base_index, bas_term, entries, },
+            Event::ReplicateEntries { base_index, base_term, entries, },
         )?;
         Ok(())
     }
 
-    fn commit(&mut self) -> Result<()> {
+    fn commit(&mut self) -> Result<u64> {
         let mut last_indexes = vec![self.log.last_index];
         last_indexes.extend(self.role.peer_last_index.values());
         last_indexes.sort_unstable();
         last_indexes.reverse();
-        let quorum_index = last_indexes[self.quorum()];
+        let quorum_index = last_indexes[self.quorum() as usize];
         if quorum_index > self.log.commited_index {
             if let Some(entry) = self.log.get(quorum_index)? {
                 if entry.term == self.term {
@@ -95,7 +95,7 @@ impl RoleNode<Leader> {
         }
         if msg.term > self.term {
             if let Address::Peer(from) = &msg.from {
-                return self.become_follower(msg.term, leader)
+                return self.become_follower(msg.term, from)?.step(msg);
             }
         }
 
@@ -105,10 +105,10 @@ impl RoleNode<Leader> {
                 if let Address::Peer(from) = msg.from.clone() {
                     self.state_tx.send(Instruction::Vote {
                          term: msg.term, index: commit_index, address: msg.from,
-                        })?
-                }
-                if !has_commited {
-                    self.replicate(&from)?;
+                        })?;
+                    if !has_commited {
+                            self.replicate(&from)?;
+                    }
                 }
             },
 
@@ -129,8 +129,8 @@ impl RoleNode<Leader> {
                             }
                         }
                     );
+                    self.replicate(&from)?;
                 }
-                self.replicate(&from)?;
             },
 
             Event::ClientRequest { id, request: Request:: Query(command) } => {
@@ -163,7 +163,7 @@ impl RoleNode<Leader> {
                 let index = self.append(Some(command))?;
                 self.state_tx.send(Instruction::Notify { id, address: msg.from, index, })?;
                 if self.peers.is_empty() {
-                    self.commit()?
+                    self.commit()?;
                 }
             },
 
@@ -179,7 +179,7 @@ impl RoleNode<Leader> {
                     storage_size: self.log.store.size(),
                 });
                 status.node_last_index.insert(self.id.clone(), self.log.last_index);
-                self.state_tx.send(Instruction::Status { id, address, status, })?
+                self.state_tx.send(Instruction::Status { id, address: Address::Peers, status, })?
             }
 
             Event::ClientResponse { id, mut response } => {
@@ -196,10 +196,6 @@ impl RoleNode<Leader> {
         }
         Ok(self.into())
 
-    }
-
-    fn quorum(&self) -> usize {
-        (self.peers.len() + 1) / 2 + 1
     }
 
     pub fn tick(mut self) -> Result<Node> {

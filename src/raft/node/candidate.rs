@@ -1,9 +1,10 @@
 use log::{warn, info, debug};
 use rand::Rng;
 
-use crate::raft::message::{Address, Event, Message};
+use crate::raft::message::{Address, Event, Message, Response};
+use crate::error::{Result, Error};
 
-use super::{ELECTION_TIMEOUT_MIN, ELECTION_TIMEOUT_MAX, RoleNode, leader::{self, Leader}, follower::Follower};
+use super::{ELECTION_TIMEOUT_MIN, ELECTION_TIMEOUT_MAX, RoleNode, leader::{self, Leader}, follower::Follower, Node,};
 
 
 pub struct Candidate {
@@ -66,7 +67,7 @@ impl RoleNode<Candidate> {
         match msg.event {
             Event::Heartbeat { .. } => {
                 if let Address::Peer(from) = &msg.from {
-                    return self.become_follower(msg.term, from)?.step();
+                    return self.become_follower(msg.term, from)?.step(msg);
                 }
             }
 
@@ -84,7 +85,7 @@ impl RoleNode<Candidate> {
                             event,
                         })?;
                     }
-                    return Ok(node)
+                    return Ok(node);
                 }
             }
             Event::ClientRequest { .. } => self.queued_reqs.push((msg.from, msg.event)),
@@ -103,7 +104,8 @@ impl RoleNode<Candidate> {
             | Event::AcceptEntries { .. }
             | Event::RejectEntries { .. } => warn!("Received unexpected message {:?}", msg),
 
-        }
+        };
+
         Ok(self.into())
     }
 

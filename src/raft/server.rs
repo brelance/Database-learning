@@ -1,21 +1,21 @@
-use std::any::Any;
 use std::collections::HashMap;
-use std::hash::Hash;
-use std::net::TcpListener;
+use tokio_stream::StreamExt as _;
+use futures::{sink::SinkExt as _, FutureExt as _};
 
-use futures::{TryStreamExt, FutureExt, StreamExt};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, TcpListener};
 use tokio::sync::{mpsc, oneshot};
-use tokio_stream::StreamExt;
+use crate::error::{Error, Result};
 use tokio_util::codec::Framed;
 use tokio_stream::wrappers::{TcpListenerStream, UnboundedReceiverStream, ReceiverStream};
 use tokio_util::codec::LengthDelimitedCodec;
-use super::message::{Message, Request, Response, Address};
+use super::message::{Message, Request, Response, Address, Event};
 use super::node::Node;
 use crate::State;
 use core::time::Duration;
 use log::{debug, error};
-const TICK: usize = 100;
+use super::log::Log;
+use uuid::Uuid;
+const TICK: Duration = Duration::from_millis(100);
 
 pub struct Server {
     node: Node,
@@ -52,7 +52,7 @@ impl Server {
         client_rx: mpsc::UnboundedReceiver<(Request, oneshot::Sender<Result<Response>>)>,
     ) -> Result<()> {
         let (tcp_in_tx, tcp_in_rx) = mpsc::unbounded_channel::<Message>();
-        let (tcp_out_tx, tcp_out_tx) = mpsc::unbounded_channel::<Message>();
+        let (tcp_out_tx, tcp_out_rx) = mpsc::unbounded_channel::<Message>();
         let (task, tcp_receiver) = Self::tcp_receive(listener, tcp_in_tx).remote_handle();
         tokio::spawn(task);
         let (task, tcp_sender) = Self::tcp_send(self.node.id(), self.peers, tcp_out_rx).remote_handle();
@@ -125,7 +125,7 @@ impl Server {
                     Ok(()) => debug!("Raft peer {} connected", peer),
                     Err(err) => error!("Raft peer {} error: {}", peer, err.to_string()),
                 }
-            })
+            });
         }
         Ok(())
     }
@@ -143,9 +143,9 @@ impl Server {
             tokio::spawn(Self::tcp_send_peer(addr, peer_rx));
         }
 
-        while let Some(msg)=  out_rx.next().await {
+        while let Some(mut msg)=  out_rx.next().await {
             if msg.from == Address::Local {
-                msg.from == Address::Peer(node_id.clone())
+                msg.from = Address::Peer(node_id.clone());
             }
             let to = match &msg.to {
                 Address::Peers => peer_txs.keys().cloned().collect(),
@@ -195,7 +195,7 @@ impl Server {
             match TcpStream::connect(&addr).await {
                 Ok(socket) => {
                     debug!("Connected to Raft peer {}", addr);
-                    match Self::tcp_send_peer(saddr, &mut out_rx).await {
+                    match Self::tcp_send_session(socket, &mut out_rx).await {
                         Ok(()) => break,
                         Err(err) => error!("Failed sending to Raft peer {}: {}", addr, err),
                     }

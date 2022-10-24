@@ -7,7 +7,7 @@ use crate::error::{Error, Result};
 use super::Transaction;
 
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct Table {
     pub name: String,
     pub columns: Vec<Column>,
@@ -80,7 +80,7 @@ impl Table {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct Column {
     pub name: String,
 
@@ -131,11 +131,11 @@ impl Column {
             )));
         }
 
-        if let Some(reference) = self.reference {
-            let target = if reference == table.name {
-                table
+        if let Some(reference) = &self.reference {
+            let target = if reference == &table.name {
+                table.clone()
             } else if let Some(reftab) = txn.read_table(&reference)? {
-                &reftab
+                reftab
             } else {
                 return Err(Error::Value(format!(
                     "Table {} referenced by column {} does not exist",
@@ -176,11 +176,11 @@ impl Column {
             _ => Ok(()),
         }?;
 
-        if let Some(target) = self.reference {
+        if let Some(target) = &self.reference {
             match val {
                 Value::Null => Ok(()),
                 Value::Float(f) if f.is_nan() => Ok(()),
-                v if &target == &table.name && v == pk =>Ok(()),
+                v if target == &table.name && v == pk =>Ok(()),
                 v if txn.read(target.as_str(), v)?.is_none() => Err(Error::Value(format!(
                     "Referenced primary key {} in table {} does not exist",
                     v, target,

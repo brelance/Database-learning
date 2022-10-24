@@ -3,7 +3,7 @@ use super::{log::Entry, Status};
 use crate::error::{Result, Error};
 
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug,Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Address {
     Peers,
     Peer(String),
@@ -12,7 +12,7 @@ pub enum Address {
 }
 
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct  Message {
     pub term: u64,
     pub from: Address,
@@ -20,7 +20,7 @@ pub struct  Message {
     pub event: Event,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
     Heartbeat {
         commit_index: u64,
@@ -36,7 +36,7 @@ pub enum Event {
 
     ReplicateEntries {
         base_index: u64,
-        bas_term: u64,
+        base_term: u64,
         entries: Vec<Entry>
     },
 
@@ -62,14 +62,14 @@ pub enum Event {
     },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     Query(Vec<u8>),
     Mutate(Vec<u8>),
     Status,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Response {
     State(Vec<u8>),
     Status(Status),

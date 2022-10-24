@@ -16,7 +16,7 @@ impl Kv {
         Kv { kv: mvcc }
     }
 
-    pub fn set_metadata(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
+    pub fn set_metadata(&mut self, key: &[u8], value: Vec<u8>) -> Result<()> {
         self.kv.set_metadata(key, value)
     }
 
@@ -286,21 +286,21 @@ enum Key<'a> {
 
 impl<'a> Key<'a> {
     fn encode(self) -> Vec<u8> {
-        match &self {
+        match self {
             Self::Table(None) => vec![0x01],
-            Self::Table(Some(name)) => [&[0x01][..], &encode_string(name)].concat(),
+            Self::Table(Some(name)) => [&[0x01][..], &encode_string(&name)].concat(),
             Self::Index(table, column, None) 
-                => [&[0x02][..], &encode_string(table), &encode_string(column)].concat(),
+                => [&[0x02][..], &encode_string(&table), &encode_string(&column)].concat(),
             Self::Index(table, column, Some(value)) 
-                => [&[0x02][..], &encode_string(table), &encode_string(column), &encode_value(value.into_owned())].concat(),
-            Self::Row(table, None) => [&[0x03][..], &encode_string(table)].concat(),
+                => [&[0x02][..], &encode_string(&table), &encode_string(&column), &encode_value(value.into_owned())].concat(),
+            Self::Row(table, None) => [&[0x03][..], &encode_string(&table)].concat(),
             Self::Row(table, Some(pk)) => {
                     [&[0x03][..], &encode_string(&table), &encode_value(pk.into_owned())].concat()
                 } 
         }
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self> {
+    fn decode(mut bytes: &[u8]) -> Result<Self> {
         let bytes = &mut bytes;
         let key = match take_byte(bytes)? {
             0x01 => Self::Table(Some(take_string(bytes)?.into())),

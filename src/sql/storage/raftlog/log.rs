@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::sync::{Mutex, MutexGuard};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::{File, create_dir_all, OpenOptions,};
@@ -8,6 +9,7 @@ use super::{Error, Result, Range};
 use std::ops::Bound;
 use std::cmp::{min, max};
 
+
 pub struct LogStore {
     file: Mutex<File>,
     index: BTreeMap<u64, (u64, u32)>,
@@ -15,6 +17,12 @@ pub struct LogStore {
     metadata: HashMap<Vec<u8>, Vec<u8>>,
     meta_file: File,
     sync: bool,
+}
+
+impl Display for LogStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "hybrid")
+    }
 }
 
 impl LogStore {
@@ -34,8 +42,8 @@ impl LogStore {
             .open(dir.join("raft-metadata"))?;
         
         Ok(LogStore {
-            file: Mutex::new(file),
             index: Self::load_index(&file)?,
+            file: Mutex::new(file),
             uncommited: VecDeque::new(),
             metadata: HashMap::new(),
             meta_file: meatadata,
@@ -131,7 +139,7 @@ impl super::Store for LogStore {
                 let (pos, size) = self.index.get(&index).copied().ok_or_else(
                     || Error::Internal(format!("Indexed position not found for entry {}", i)) 
                 )?;
-                let file = self.file.lock()?;
+                let mut file = self.file.lock()?;
                 let mut entry = vec![0; size as usize];
                 file.seek(SeekFrom::Start(pos))?;
                 file.read_exact(&mut entry)?;

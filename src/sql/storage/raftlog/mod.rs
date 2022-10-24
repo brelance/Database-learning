@@ -1,5 +1,5 @@
 mod log;
-use std::ops::{Bound, RangeBounds};
+use std::{ops::{Bound, RangeBounds}, fmt::Display};
 
 pub use crate::error::{Error, Result};
 pub use self::log::LogStore;
@@ -7,7 +7,7 @@ pub use self::log::LogStore;
 use self::log::Scan;
 
 
-pub trait Store {
+pub trait Store: Display + Sync + Send{
     fn append(&mut self, entry: Vec<u8>) -> Result<u64>;
     
     fn commit(&mut self, index: u64) -> Result<()>;

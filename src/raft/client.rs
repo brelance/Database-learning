@@ -38,7 +38,7 @@ impl Client {
     pub async fn status(&self) -> Result<Status> {
         match self.request(Request::Status).await? {
             Response::Status(status) => Ok(status),
-            status => Err(Error::Internal(format!("Unexpected Raft status response {:?}", resp))),
+            status => Err(Error::Internal(format!("Unexpected Raft status response {:?}", status))),
         }
     }
 

@@ -364,7 +364,7 @@ enum Key<'a> {
     Record(Cow<'a, [u8]>, u64),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Copy, Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub enum Mode {
     ReadWrite,
     ReadOnly,
