@@ -1,4 +1,4 @@
-use super::{Store, encode_u64, encode_bytes};
+use super::{Store, encode_u64, encode_bytes, memory};
 use std::{borrow::Cow, collections::HashSet, sync::{Arc, RwLock, RwLockWriteGuard, RwLockReadGuard}, clone, mem, ops::{RangeBounds, Bound}, iter::Peekable};
 use super::{coding::*, Range};
 use crate::{error::{Result, Error}};
@@ -83,8 +83,8 @@ impl Transaction {
             None => 1,
         };
 
-        session.set(&Key::TxnNext.encode(), serialize(&(txn_id + 1))?);
-        session.set(&Key::TxnActive(txn_id).encode(), serialize(&mode)?);
+        session.set(&Key::TxnNext.encode(), serialize(&(txn_id + 1))?)?;
+        session.set(&Key::TxnActive(txn_id).encode(), serialize(&mode)?)?;
         let mut snapshot = Snapshot::take(&mut session, txn_id)?;
 
 
@@ -104,7 +104,7 @@ impl Transaction {
 
     pub fn resume(store: Arc<RwLock<Box<dyn Store>>>, id: u64) -> Result<Self>{
         let session = store.read()?;
-        let mut snapshot = Snapshot{version: 0, invisible: HashSet::new() };
+        let snapshot = Snapshot{version: 0, invisible: HashSet::new() };
         let (mode, snapshot) = if let Some(mode) = session.get(&Key::TxnActive(id).encode())? {
             match deserialize(&mode)? {
                 Mode::Snapshot { version } => (mode, Snapshot::restore(&session, version)?),
@@ -415,4 +415,27 @@ fn serialize<V: Serialize>(value: &V) -> Result<Vec<u8>> {
 
 fn deserialize<'a, V: Deserialize<'a>>(bytes: &'a [u8]) -> Result<V> {
     Ok(bincode::deserialize(bytes)?)
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::env;
+
+    #[test]
+fn mvcc_test() -> Result<()> {
+    env::set_var("RUST_BACKTRACE", "1");
+    let mut mvcc = 
+        Mvcc { store: Arc::new(RwLock::new(Box::new(memory::Memory::new()))) };
+    let txn = mvcc.begin_with_mode(Mode::ReadWrite)?;
+    assert_eq!(txn.id(), 1);
+    let next_id = mvcc.store
+        .read()?
+        .get(&Key::TxnNext.encode())?
+        .map(|val| deserialize(&val))
+        .transpose()?;
+    assert_eq!(next_id, Some(2 as u64));
+    Ok(())
+}
 }

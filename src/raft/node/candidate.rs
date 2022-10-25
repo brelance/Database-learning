@@ -4,8 +4,7 @@ use rand::Rng;
 use crate::raft::message::{Address, Event, Message, Response};
 use crate::error::{Result, Error};
 
-use super::{ELECTION_TIMEOUT_MIN, ELECTION_TIMEOUT_MAX, RoleNode, leader::{self, Leader}, follower::Follower, Node,};
-
+use super::{ELECTION_TIMEOUT_MIN, ELECTION_TIMEOUT_MAX, RoleNode, leader::{Leader}, follower::Follower, Node,};
 
 pub struct Candidate {
     election_ticks: u64,

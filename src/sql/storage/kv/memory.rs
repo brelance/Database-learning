@@ -137,13 +137,10 @@ impl Node {
 
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         match self {
-            Node::Root(children) => {
+            Node::Root(children) |Node::Inner(children) => {
                 children.get(key)
             }
-            Node::Inner(children) => {
-                children.get(key)
-            }
-            _ => { None },
+            Node::Leaf(value) => value.get(key),
         }
     }
 
@@ -277,15 +274,19 @@ impl Children {
     }
 
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
-        let (_, node) = self.lookup(key);
-        match node {
-            Node::Inner(child) => {
-                child.get(key)
-            },
-            Node::Leaf(values) => {
-                values.get(key)
-            },
-            _ => { None } 
+        if !self.is_empty() {
+            let (_, node) = self.lookup(key);
+            match node {
+                Node::Inner(child) => {
+                    child.get(key)
+                },
+                Node::Leaf(values) => {
+                    values.get(key)
+                },
+                _ => { None } 
+            }
+        } else {
+            None
         }
     }
 
