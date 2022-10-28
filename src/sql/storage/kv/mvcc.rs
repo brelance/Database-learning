@@ -4,6 +4,7 @@ use super::{coding::*, Range};
 use crate::{error::{Result, Error}};
 use super::{Value};
 
+use log::{info, debug};
 use serde::{Serialize, Deserialize};
 use serde_derive::{Serialize, Deserialize};
 
@@ -141,13 +142,13 @@ impl Transaction {
         Ok(())
     }
 
-    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>{
+    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let session = self.storage.read()?;
         let mut scan = 
             session.scan(Range::from(Key::Record(key.into(), 0).encode()
             ..=Key::Record(key.into(), self.id()).encode()))
             .rev();
-        
+
         while let Some((k, v)) = scan.next().transpose()? {
             match Key::decode(&k)? {
                 Key::Record(_ , version) => {
@@ -174,14 +175,17 @@ impl Transaction {
             return Err(Error::ReadOnly);
         }
         let mut session = self.storage.write()?;
-        let min = self.snapshot.invisible.iter().min().cloned().unwrap();
+        let min = self.snapshot.invisible.iter().min().cloned().unwrap_or(self.txn_id + 1);
+        println!("min = {}", min);
 
         let mut scan = 
-            session.scan(Range::from(Key::Record(key.into(), min).encode()..=Key::Record(key.into(), u64::MAX).encode()));
+            session.scan(Range::from(Key::Record(key.into(), min).encode()..=Key::Record(key.into(), u64::MAX).encode()))
+            .rev();
         
         while let Some((k, _ )) = scan.next().transpose()? {
             match Key::decode(&k)? {
-                Key::Record(_, version) => {
+                Key::Record(k, version) => {
+                    println!("kye = {:?}", k.to_vec());
                     if !self.snapshot.is_visiable(version) {
                         return Err(Error::Serialization);
                     }
@@ -192,8 +196,10 @@ impl Transaction {
         std::mem::drop(scan);
         
         let update = Key::TxnUpdate(self.txn_id, key.into()).encode();
+        println!("update = {:?}", update);
         let record = Key::Record(key.into(), self.txn_id).encode();
         session.set(&update, vec![])?;
+        println!("recore = {:?}", record);
         session.set(&record, serialize(&value)?)
     }
 
@@ -238,8 +244,10 @@ impl Transaction {
 
 
     pub fn commit(self) -> Result<()>{
+        println!("commit here");
         let mut session = self.storage.write()?;
         session.delete(&Key::TxnActive(self.txn_id).encode())?;
+        println!("delete txnActive");
         Ok(())
     }
 
@@ -262,18 +270,21 @@ struct Snapshot {
 impl Snapshot {
     fn take(session: &mut RwLockWriteGuard<Box<dyn Store>>, version: u64) -> Result<Self> {
         let mut scan = 
-            session.scan(Range::from(Key::TxnActive(0).encode()..Key::TxnActive(version).encode()));
+            session.scan(Range::from(Key::TxnActive(1).encode()..Key::TxnActive(version).encode()));
         let mut invisible = HashSet::new();
         while let Some((key, _ )) = scan.next().transpose()? {
             match Key::decode(&key)? {
-                Key::TxnActive(id) => invisible.insert(id),
+                Key::TxnActive(id) => { 
+                    invisible.insert(id);
+                    println!("invisiableid {}", id); 
+                }
                 val => return Err(Error::Internal("snapshot take error".to_string())),
             };
         }
 
         mem::drop(scan);
         session.set(&Key::TxnActive(version).encode(), serialize(&invisible)?);
-
+        
         Ok(Snapshot { version, invisible })
     }
 
@@ -372,7 +383,6 @@ pub enum Mode {
 }
 
 impl Mode {
-
     fn mutable(&self) -> bool {
         match self {
             Mode::ReadWrite => true,
@@ -420,22 +430,104 @@ fn deserialize<'a, V: Deserialize<'a>>(bytes: &'a [u8]) -> Result<V> {
 
 #[cfg(test)]
 mod test {
+    use log::RecordBuilder;
+    use memory::Memory;
+
+    use crate::sql::storage::kv::kv::Txn;
+
     use super::*;
-    use std::env;
+    use std::{env, vec};
+
+    fn setup() -> Mvcc {
+        Mvcc { store: Arc::new(RwLock::new(Box::new(Memory::new()))) }
+    }
 
     #[test]
-fn mvcc_test() -> Result<()> {
-    env::set_var("RUST_BACKTRACE", "1");
-    let mut mvcc = 
-        Mvcc { store: Arc::new(RwLock::new(Box::new(memory::Memory::new()))) };
-    let txn = mvcc.begin_with_mode(Mode::ReadWrite)?;
-    assert_eq!(txn.id(), 1);
-    let next_id = mvcc.store
-        .read()?
-        .get(&Key::TxnNext.encode())?
-        .map(|val| deserialize(&val))
-        .transpose()?;
-    assert_eq!(next_id, Some(2 as u64));
-    Ok(())
-}
+    fn mvcc_test() -> Result<()> {
+        let mut mvcc = setup();
+        let mut txn = mvcc.begin()?;
+        assert_eq!(txn.id(), 1);
+        let key = "key".as_bytes();
+        txn.set(key, vec![0x01]);
+
+        let val = txn.get(key)?.unwrap();
+        let version = txn.storage
+            .read()?
+            .get(&Key::TxnUpdate(1, Cow::Borrowed(key)).encode())?.unwrap();
+        assert_eq!(val, vec![0x01]);
+
+        let record = txn.storage
+            .read()?
+            .get(&Key::Record(Cow::Borrowed(key), 1).encode())?
+            .map(|val| deserialize::<Option<Vec<u8>>>(&val))
+            .transpose()?
+            .unwrap();
+        println!("record1 = {:?}", record.unwrap());
+
+        let record = txn.storage
+            .read()?
+            .get(&Key::TxnActive(1).encode())?;
+        println!("record2 = {:?}", record.unwrap());
+
+        txn.storage.write()?.delete(&Key::TxnActive(1).encode())?;
+        let record = txn.storage
+            .read()?
+            .get(&Key::TxnActive(1).encode())?;
+        println!("record3 = {:?}", record);
+
+        txn.commit()?;
+
+        let mut txn2 = mvcc.begin()?;
+        assert_eq!(txn2.id(), 2);
+        // let record = txn2.storage
+        //     .read()?
+        //     .get(&Key::TxnActive(1).encode())?;
+        // println!("record4 = {:?}", record.unwrap());
+
+        let record = txn2.storage
+            .read()?
+            .get(&Key::TxnActive(2).encode())?;
+        println!("record5 = {:?}", record.unwrap());
+
+        assert_eq!(txn2.snapshot.version, 2);
+        txn2.set(key, vec![0x10]);
+        txn2.storage.write()?.delete(&Key::TxnActive(1).encode())?;
+        txn2.commit()?;
+
+        let mut txn3 = mvcc.begin()?;
+        let mut txn4 = mvcc.begin()?;
+        let mut txn5 = mvcc.begin()?;
+        let mut txn6 = mvcc.begin()?;
+        Ok(())
+    }
+
+    #[test]
+    fn encode_test() -> Result<()> {
+        let mvcc = setup();
+
+        let mut txn = mvcc.begin()?;
+        let recore = Key::Record(Cow::Owned(vec![0x00, 0x01, 0x03]), 1);
+        let encode = recore.encode();
+        txn.set(&encode, vec![0x01])?;
+
+        let recore = Key::Record(Cow::Owned(vec![0x00, 0x01, 0x03]), 2);
+        let encode = recore.encode();
+        txn.set(&encode, vec![0x02])?;
+
+        let recore = Key::Record(Cow::Owned(vec![0x00, 0x01, 0x03]), 3);
+        let encode = recore.encode();
+        txn.set(&encode, vec![0x03])?;
+
+        let recore = Key::Record(Cow::Owned(vec![0x00, 0x01, 0x03]), 4);
+        let encode = recore.encode();
+        txn.set(&encode, vec![0x04])?;
+        assert_eq!(txn.get(&encode)?.unwrap(), vec![0x04]);
+
+        let mut txn2 = mvcc.begin()?;
+        println!("here");
+        txn2.set(&encode, vec![0x05])?;
+        assert!(txn2.get(&encode)?.is_none());
+
+        Ok(())
+    }
 }

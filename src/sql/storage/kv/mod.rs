@@ -23,7 +23,7 @@ pub trait Store: Display + Send + Sync {
     fn delete(&mut self, key: &[u8]) -> Result<()>;
 
     fn flush(&self) -> Result<()>;
-
+ 
     fn scan(&self, range: Range) -> Scan;
 }
 

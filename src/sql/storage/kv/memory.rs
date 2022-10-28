@@ -12,7 +12,9 @@ use std::sync::RwLock;
 use crate::error::Result;
 use std::mem;
 use super::Range;
+use super::coding::*;
 use super::Store;
+use std::borrow::Cow;
 
 const DEFAULT_NODE_NUM: usize = 8;
 
@@ -615,7 +617,7 @@ impl Iter {
 
     fn try_next_back(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
         let root = self.root.read()?;
-        let next = match &self.back {
+        let prev = match &self.back {
             None => {
                 match &self.range.end {
                     Bound::Included(key) => { 
@@ -629,7 +631,7 @@ impl Iter {
             },
             Some(key) => root.get_prev(key),
         };
-        if let Some((k, _ )) = &next {
+        if let Some((k, _ )) = &prev {
             if !self.range.contained(&k) {
                 return Ok(None);
             }
@@ -640,7 +642,7 @@ impl Iter {
             }
             self.back = Some(k.clone());
         }
-        Ok(next)
+        Ok(prev)
     }
 }
 
@@ -659,36 +661,174 @@ impl DoubleEndedIterator for Iter {
 
 #[cfg(test)]
 mod test {
-    use std::env;
+    use std::{env, vec};
 
     use super::*;
     use pretty_assertions::assert_eq;
+    use serde::{Deserialize, Serialize};
+    use serde_derive::{Deserialize, Serialize};
+    use crate::error::{Error, Result};
 
+    enum Key<'a> {
+        TxnNext,
+        TxnActive(u64),
+        TxnSnapshot(u64),
+        TxnUpdate(u64, Cow<'a, [u8]>),
+        Metadata(Cow<'a, [u8]>),
+        Record(Cow<'a, [u8]>, u64),
+    }
+    
+    #[derive(Copy, Debug, PartialEq, Serialize, Deserialize, Clone)]
+    pub enum Mode {
+        ReadWrite,
+        ReadOnly,
+        Snapshot { version: u64 }
+    }
+    
+    impl Mode {
+        fn mutable(&self) -> bool {
+            match self {
+                Mode::ReadWrite => true,
+                _ => false,
+            }
+        }
+    }
+    
+    impl<'a> Key<'a> {
+        fn encode(&self) -> Vec<u8> {
+            match &self {
+                Key::TxnNext => vec![0x01],
+                Key::TxnActive(id) => [&[0x02][..], &encode_u64(*id)].concat(),
+                Key::TxnSnapshot(version) => [&[0x03][..], &encode_u64(*version)].concat(),
+                Key::TxnUpdate(id, key) => [&[0x04][..], &encode_u64(*id), &encode_bytes(key)].concat(),
+                Key::Metadata(meta) => [&[0x05][..], &encode_bytes(meta)].concat(),
+                Key::Record(key, version) => [&[0xff][..], &encode_bytes(key), &encode_u64(*version)].concat(),
+    
+            }
+        }
+    
+        fn decode(mut bytes: &[u8]) -> Result<Self> {
+            let bytes = &mut bytes;
+            
+            match take_byte(bytes)? {
+                0x01 => Ok(Key::TxnNext),
+                0x02 => Ok(Key::TxnActive(take_u64(bytes)?)),
+                0x03 => Ok(Key::TxnSnapshot(take_u64(bytes)?)),
+                0x04 => Ok(Key::TxnUpdate(take_u64(bytes)?, take_bytes(bytes)?.into())),
+                0x05 => Ok(Key::Metadata(take_bytes(bytes)?.into())),
+                0xff => Ok(Key::Record(take_bytes(bytes)?.into(), take_u64(bytes)?)),
+                _ => return Err(Error::Value("decode error".to_string()))
+            }
+        }
+    }
+    
+    fn serialize<V: Serialize>(value: &V) -> Result<Vec<u8>> {
+        Ok(bincode::serialize(value)?)
+    }
+    
+    fn deserialize<'a, V: Deserialize<'a>>(bytes: &'a [u8]) -> Result<V> {
+        Ok(bincode::deserialize(bytes)?)
+    }
 
     #[test]
-    fn set_test()  {
+    fn set_test() -> Result<()> {
         env::set_var("RUST_BACKTRACE", "1");
-        let mut mem = Node::Root(Children::new(8));
-        let mut char = &mut [0x01];
-        let mut val = 0x11;
+        let mut mem = Memory::new();
+        let mut char = vec![0x0001];
+        let mut val = 0x0001;
         for i in 0..200 {
-            mem.set(char, vec![val]);
+            mem.set(&char, vec![val]);
+            assert_eq!(mem.get(&char)?.unwrap(), vec![val]);
+            char[0] += 1;
+            val += 1;
+        }
+
+
+        let mut char = vec![0x55];
+        for i in 55..169 {
+            // assert!(mem.get(&char)?.is_some());
+            mem.delete(&char);
+            // assert!(mem.get(&char)?.is_none());
             char[0] += 1;
         }
 
-        let value = mem.get(&[145]);
-        assert_eq!(value, Some(vec![0x11]));
-        mem.set(&[145], vec![0x56]);
-        assert_eq!(mem.get(&[145]), Some(vec![0x56]));
-    }
-    //#[test]
-    fn test() {
-        let mut mem = Node::Root(Children::new(8));
-        let mut key = &mut [1];
-        for i in 0..1000 {
-            key[0] += 1;
+        let mut tval = 0x01;
+        let mut scan = mem.scan(Range::from(&vec![0x01]..=&vec![0x20]));
+        for i in 0..=20 {
+            if let Some((_, val)) = scan.next().transpose()? {
+                assert_eq!(val, vec![tval]);
+                tval += 1;
+            }
         }
+        
+        let mut rev_scan = mem.scan(Range::from(&vec![0x01]..=&vec![0x20])).rev();
+        if let Some((_, val)) = rev_scan.next().transpose()? {
+            assert_eq!(val, vec![0x20]);
+        }
+        Ok(())
+    }
 
+    #[test]
+    fn scan_test() -> Result<()> {
+        let mut mem = Memory::new();
+
+        mem.set(&vec![0x01], vec![0x10]);
+        mem.set(&vec![0x02], vec![0x20]);
+        mem.set(&vec![0x03], vec![0x30]);
+        let mut scan = mem.scan(Range::from(&vec![0x01]..=&vec![0x03]));
+        let (_, val) = scan.next().transpose()?.unwrap();
+        assert_eq!(val, vec![0x10]);
+        let (_, val) = scan.next().transpose()?.unwrap();
+        assert_eq!(val, vec![0x20]);
+        let (_, val) = scan.next().transpose()?.unwrap();
+        assert_eq!(val, vec![0x30]);
+
+        let mut rscan = mem.scan(Range::from(&vec![0x01]..=&vec![0x03])).rev();
+        let (_, val) = rscan.next().transpose()?.unwrap();
+        assert_eq!(val, vec![0x30]);
+        let (_, val) = rscan.next().transpose()?.unwrap();
+        assert_eq!(val, vec![0x20]);
+        let (_, val) = rscan.next().transpose().map_err(|err| Error::Internal("err here".into()))?.unwrap();
+        assert_eq!(val, vec![0x10]);
+     
+        Ok(())
+    }
+
+    #[test]
+    fn delete() -> Result<()> {
+        let mut mem = Memory::new();
+
+        mem.set(&Key::TxnActive(1).encode(), vec![0x12]);
+        mem.delete(&Key::TxnActive(1).encode());
+        assert!(mem.get(&Key::TxnActive(1).encode())?.is_none());
+
+        mem.set(&Key::TxnActive(2).encode(), vec![0x12]);
+        mem.delete(&Key::TxnActive(2).encode());
+        assert!(mem.get(&Key::TxnActive(2).encode())?.is_none());
+
+        mem.set(&Key::TxnActive(3).encode(), vec![0x12]);
+        mem.delete(&Key::TxnActive(3).encode());
+        assert!(mem.get(&Key::TxnActive(3).encode())?.is_none());
+
+        mem.set(&Key::TxnActive(4).encode(), vec![0x12]);
+        mem.delete(&Key::TxnActive(4).encode());
+        assert!(mem.get(&Key::TxnActive(4).encode())?.is_none());
+
+        mem.set(&Key::TxnActive(5).encode(), vec![0x12]);
+        mem.delete(&Key::TxnActive(5).encode());
+        assert!(mem.get(&Key::TxnActive(5).encode())?.is_none());
+
+        mem.set(&Key::TxnActive(6).encode(), vec![0x12]);
+        mem.delete(&Key::TxnActive(6).encode());
+        assert!(mem.get(&Key::TxnActive(6).encode())?.is_none());
+
+        mem.delete(&[0x01]);
+        assert!(mem.get(&[0x01])?.is_none());
+        Ok(())
+    }
+
+    fn debug() {
+        
     }
 }
 

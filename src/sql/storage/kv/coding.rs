@@ -32,16 +32,18 @@ pub fn take_byte(bytes: &mut &[u8]) -> Result<u8> {
 pub fn encode_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut encoded = Vec::with_capacity(bytes.len() + 2);
     encoded.extend(bytes.iter().flat_map(|&byte| 
-        match  byte {
+        match byte {
             0x00 => vec![0x00, 0xff],
             b => vec![b],
         }).chain(vec![0x00, 0x00]));
 
     encoded
-
 }
 
 pub fn take_bytes(bytes: &mut &[u8]) -> Result<Vec<u8>> {
+    if bytes.is_empty() {
+        return Err(Error::Internal("take a empty bytes".into()));
+    }
     let mut decoded = Vec::new();
     let mut iter = bytes.iter().enumerate();
     let index = loop {
@@ -154,20 +156,71 @@ pub fn take_value(bytes: &mut &[u8]) -> Result<Value> {
 
 #[cfg(test)]
 mod test {
+
+
+    use super::*;
     #[test]
-    fn coding_test() {
-        let v: Vec<u8> = [0x11, 0x12, 0x13, 0x14].to_vec();
-        let mut encode = Vec::with_capacity(v.len() + 2);
-        encode.extend(
-            v.iter().flat_map(|&val|
-                match val {
-                    0x00 => vec![0x00, 0xff],
-                    b => vec![val],
-                }
-            )
-            .chain(vec![0x00, 0x00])
-        );
-        println!("{:?}", encode);
-     
+    fn encode_boolean() -> Result<()> {
+        use super::encode_boolean;
+        assert_eq!(encode_boolean(false), 0x00);
+        assert_eq!(encode_boolean(true), 0x01);
+        Ok(())
     }
+
+    #[test]
+    fn decode_boolean() -> Result<()> {
+        use super::decode_boolean;
+        assert_eq!(decode_boolean(0x00)?, false);
+        assert_eq!(decode_boolean(0x01)?, true);
+        Ok(())
+    }
+
+    #[test]
+    fn take_boolean() -> Result<()> {
+        use super::take_boolean;
+        let mut bytes: &[u8] = &[0x00, 0xaf];
+        take_boolean(&mut bytes)?;
+        Ok(())
+    }
+
+    #[test]
+        fn encode_bytes() {
+        use super::encode_bytes;
+        assert_eq!(encode_bytes(&[]), vec![0x00, 0x00]);
+        assert_eq!(encode_bytes(&[0x01, 0x02, 0x03]), vec![0x01, 0x02, 0x03, 0x00, 0x00]);
+        assert_eq!(encode_bytes(&[0x00, 0x01, 0x02]), vec![0x00, 0xff, 0x01, 0x02, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn take_bytes() -> Result<()> {
+        use super::encode_bytes;
+        use super::take_bytes;
+        let mut bytes: &[u8] = &[];
+        assert!(take_bytes(&mut bytes).is_err());
+        
+        let mut bytes: &[u8] = &[0x00, 0x00];
+        assert_eq!(take_bytes(&mut bytes)?, Vec::<u8>::new());
+
+        let mut bytes: &[u8] = &[0x01, 0x02, 0x00, 0x00];
+        assert_eq!(take_bytes(&mut bytes)?, vec![0x01, 0x02]);
+
+        let mut bytes: &[u8] = &[0x00, 0xff, 0x01, 0x02, 0x00, 0x00];
+        assert_eq!(take_bytes(&mut bytes)?, &[0x00, 0x01, 0x02]);
+        assert!(bytes.is_empty());
+
+        assert!(take_bytes(&mut &[0x00][..]).is_err());
+        assert!(take_bytes(&mut &[0x01][..]).is_err());
+        assert!(take_bytes(&mut &[0x00, 0x01, 0x00, 0x00][..]).is_err());
+        
+        let mut bytes: &[u8] = &[&encode_u64(1), encode_bytes(&[0xff, 0x01, 0x02, 0x00, 0x00]).as_slice()].concat();
+        
+        assert_eq!(1, take_u64(&mut bytes)?);
+        assert_eq!(vec![0xff, 0x01, 0x02, 0x00, 0x00], take_bytes(&mut bytes)?);
+
+        
+        Ok(())
+        
+    }
+
+
 }
