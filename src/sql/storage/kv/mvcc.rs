@@ -244,10 +244,7 @@ impl Transaction {
 
 
     pub fn commit(self) -> Result<()>{
-        println!("commit here");
-        let mut session = self.storage.write()?;
-        session.delete(&Key::TxnActive(self.txn_id).encode())?;
-        println!("delete txnActive");
+        self.storage.write()?.delete(&Key::TxnActive(self.txn_id).encode())?;
         Ok(())
     }
 
@@ -454,6 +451,7 @@ mod test {
         let version = txn.storage
             .read()?
             .get(&Key::TxnUpdate(1, Cow::Borrowed(key)).encode())?.unwrap();
+        assert_eq!(txn.id(), 1);
         assert_eq!(val, vec![0x01]);
 
         let record = txn.storage
@@ -468,21 +466,12 @@ mod test {
             .read()?
             .get(&Key::TxnActive(1).encode())?;
         println!("record2 = {:?}", record.unwrap());
-
-        txn.storage.write()?.delete(&Key::TxnActive(1).encode())?;
-        let record = txn.storage
-            .read()?
-            .get(&Key::TxnActive(1).encode())?;
-        println!("record3 = {:?}", record);
+        // txn.storage.write()?.delete(&Key::TxnActive(1).encode())?;
 
         txn.commit()?;
 
         let mut txn2 = mvcc.begin()?;
         assert_eq!(txn2.id(), 2);
-        // let record = txn2.storage
-        //     .read()?
-        //     .get(&Key::TxnActive(1).encode())?;
-        // println!("record4 = {:?}", record.unwrap());
 
         let record = txn2.storage
             .read()?
@@ -491,8 +480,9 @@ mod test {
 
         assert_eq!(txn2.snapshot.version, 2);
         txn2.set(key, vec![0x10]);
-        txn2.storage.write()?.delete(&Key::TxnActive(1).encode())?;
+        // txn2.storage.write()?.delete(&Key::TxnActive(2).encode())?;
         txn2.commit()?;
+
 
         let mut txn3 = mvcc.begin()?;
         let mut txn4 = mvcc.begin()?;

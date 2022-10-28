@@ -298,11 +298,11 @@ impl Children {
         }
 
         let (index, node) = self.lookup_mut(key);
-        node.delete(key);
+        node.delete(key); 
 
         let nsize = node.size();
 
-        if nsize > (node.capacity() + 1) / 2 {
+        if nsize >= (node.capacity() + 1) / 2 || self.len() == 1{
             return;
         }
 
@@ -324,9 +324,9 @@ impl Children {
         } else if rsize > (rcap + 1) / 2 {
             self.rotate_left(index + 1);
 
-        } else if lsize + nsize < (lcap + 1) / 2 {
+        } else if lsize + nsize <= lcap {
             self.merge(index - 1);     
-        } else if rsize + nsize < (rcap + 1) / 2 {
+        } else if rsize + nsize <= rcap {
             self.merge(index);
         }
         
@@ -392,12 +392,12 @@ impl Children {
         match &mut self[index] {
 
             Node::Inner(child) => {
-                let (key, value) = (child.keys.remove(index), child.remove(index));
-                let kkey = std::mem::replace(&mut self.keys[index - 1], key);
+                let (key, node) = (child.keys.remove(0), child.nodes.remove(0));
+                self.keys[index - 1] = key.clone();
                 match &mut self[index - 1] {
                     Node::Inner(lchild) => {
-                        lchild.push(value);
-                        lchild.keys.insert(index, kkey);
+                        lchild.nodes.push(node);
+                        lchild.keys.push(key);
 
                     },
                     _ => panic!("error left rotate "),
@@ -407,7 +407,8 @@ impl Children {
             Node::Leaf(values) => {
                 let key = values[1].0.clone();
                 let val = values.remove(0);
-                self.keys[index] = values[1].0.clone();
+                //bug fix
+                self.keys[index - 1] = key;
                 match &mut self[index - 1] {
                     Node::Leaf(lvalues) => {
                         lvalues.push(val);
@@ -436,7 +437,7 @@ impl Children {
                 self.keys[index] = lvalues.0.clone();
                 match &mut self[index + 1] {
                     Node::Leaf(rvalues) => {
-                        rvalues.push(lvalues);
+                        rvalues.insert(0, lvalues)
                     }
                     _ => panic!("error right rotate"),
                 }
@@ -798,27 +799,27 @@ mod test {
     fn delete() -> Result<()> {
         let mut mem = Memory::new();
 
-        mem.set(&Key::TxnActive(1).encode(), vec![0x12]);
+        mem.set(&Key::TxnActive(1).encode(), serialize(&Mode::ReadWrite)?);
         mem.delete(&Key::TxnActive(1).encode());
         assert!(mem.get(&Key::TxnActive(1).encode())?.is_none());
 
-        mem.set(&Key::TxnActive(2).encode(), vec![0x12]);
+        mem.set(&Key::TxnActive(2).encode(), serialize(&Mode::ReadWrite)?);
         mem.delete(&Key::TxnActive(2).encode());
         assert!(mem.get(&Key::TxnActive(2).encode())?.is_none());
 
-        mem.set(&Key::TxnActive(3).encode(), vec![0x12]);
+        mem.set(&Key::TxnActive(3).encode(), serialize(&Mode::ReadWrite)?);
         mem.delete(&Key::TxnActive(3).encode());
         assert!(mem.get(&Key::TxnActive(3).encode())?.is_none());
 
-        mem.set(&Key::TxnActive(4).encode(), vec![0x12]);
+        mem.set(&Key::TxnActive(4).encode(), serialize(&Mode::ReadWrite)?);
         mem.delete(&Key::TxnActive(4).encode());
         assert!(mem.get(&Key::TxnActive(4).encode())?.is_none());
 
-        mem.set(&Key::TxnActive(5).encode(), vec![0x12]);
+        mem.set(&Key::TxnActive(5).encode(), serialize(&Mode::ReadWrite)?);
         mem.delete(&Key::TxnActive(5).encode());
         assert!(mem.get(&Key::TxnActive(5).encode())?.is_none());
 
-        mem.set(&Key::TxnActive(6).encode(), vec![0x12]);
+        mem.set(&Key::TxnActive(6).encode(), serialize(&Mode::ReadWrite)?);
         mem.delete(&Key::TxnActive(6).encode());
         assert!(mem.get(&Key::TxnActive(6).encode())?.is_none());
 
