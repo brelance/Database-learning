@@ -243,9 +243,11 @@ impl Transaction {
     }
 
 
-    pub fn commit(self) -> Result<()>{
-        self.storage.write()?.delete(&Key::TxnActive(self.txn_id).encode())?;
-        Ok(())
+    pub fn commit(&self) -> Result<()> {
+        println!("encode txnactive in commit = {:?}", Key::TxnActive(self.txn_id).encode());
+        let mut session = self.storage.write()?;
+        session.delete(&Key::TxnActive(self.txn_id).encode())?;
+        session.flush()
     }
 
     pub fn id(&self) -> u64 {
@@ -278,9 +280,9 @@ impl Snapshot {
                 val => return Err(Error::Internal("snapshot take error".to_string())),
             };
         }
-
+ 
         mem::drop(scan);
-        session.set(&Key::TxnActive(version).encode(), serialize(&invisible)?);
+        session.set(&Key::TxnSnapshot(version).encode(), serialize(&invisible)?);
         
         Ok(Snapshot { version, invisible })
     }
@@ -466,7 +468,6 @@ mod test {
             .read()?
             .get(&Key::TxnActive(1).encode())?;
         println!("record2 = {:?}", record.unwrap());
-        // txn.storage.write()?.delete(&Key::TxnActive(1).encode())?;
 
         txn.commit()?;
 
@@ -480,7 +481,6 @@ mod test {
 
         assert_eq!(txn2.snapshot.version, 2);
         txn2.set(key, vec![0x10]);
-        // txn2.storage.write()?.delete(&Key::TxnActive(2).encode())?;
         txn2.commit()?;
 
 

@@ -92,6 +92,7 @@ impl Store for Memory {
     }
 
     fn delete(&mut self, key: &[u8]) -> Result<()> {
+        println!("delete memory");
         self.mem.write()?.delete(key);
         Ok(())
     }
@@ -826,10 +827,6 @@ mod test {
         mem.delete(&[0x01]);
         assert!(mem.get(&[0x01])?.is_none());
         Ok(())
-    }
-
-    fn debug() {
-        
     }
 }
 
