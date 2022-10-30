@@ -45,7 +45,7 @@ impl LogStore {
             index: Self::load_index(&file)?,
             file: Mutex::new(file),
             uncommited: VecDeque::new(),
-            metadata: HashMap::new(),
+            metadata: Self::load_metadata(&meatadata)?,
             meta_file: meatadata,
             sync,
         })
@@ -67,11 +67,13 @@ impl LogStore {
             //todo 
             // bufreader.seek(SeekFrom::Current(size as i64));
             bufreader.read_exact(&mut buf)?;
+            pos += size as u64;
+            i += 1;
         }
         Ok(index)
     }
 
-    fn load_meatadata(file: &File) -> Result<HashMap<Vec<u8>, Vec<u8>>> {
+    fn load_metadata(file: &File) -> Result<HashMap<Vec<u8>, Vec<u8>>> {
         match bincode::deserialize_from(file) {
             Ok(metadata) => Ok(metadata),
             Err(err) => {
@@ -129,7 +131,7 @@ impl super::Store for LogStore {
     }
 
     fn len(&self) -> u64 {
-        self.len() + self.uncommited.len() as u64
+        self.index.len() as u64 + self.uncommited.len() as u64
     }
  
     fn get(&self, index: u64) -> Result<Option<Vec<u8>>> {
@@ -252,5 +254,31 @@ struct MutexReader<'a>(MutexGuard<'a, File>);
 
 pub type Scan<'a> = Box<dyn Iterator<Item = Result<Vec<u8>>> + 'a>;
 
+#[cfg(test)]
+mod test {
+    use log::Log;
 
+    use crate::Store;
 
+    use super::*;
+    
+    fn setup() -> Result<LogStore> {
+        let path = Path::new("./test");
+        Ok(LogStore::new(path, false)?)
+    }
+
+    #[test]
+    fn test() -> Result<()> {
+        let mut log = setup()?;
+        log.append(vec![0x10]);
+        log.append(vec![0x20]);
+        log.append(vec![0x30]);
+        log.append(vec![0x40]);
+        log.append(vec![0x50]);
+        log.append(vec![0x60]);
+        log.append(vec![0x70]);
+        log.commit(4);
+
+        Ok(())
+    }
+}

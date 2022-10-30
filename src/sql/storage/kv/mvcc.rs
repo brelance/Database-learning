@@ -120,10 +120,10 @@ impl Transaction {
 
 
 
-    pub fn rollback(&self) -> Result<()> {
+    pub fn rollback(self) -> Result<()> {
         let mut session = self.storage.write()?;
-        let mut rollback = Vec::new();
         if self.mode.mutable() {
+            let mut rollback = Vec::new();
             let mut scan = 
                 session
                 .scan(Range::from(Key::TxnUpdate(self.txn_id, vec![].into()).encode()..Key::TxnUpdate(self.txn_id + 1,vec![].into()).encode()));
@@ -136,10 +136,9 @@ impl Transaction {
             for key in rollback {
                 session.delete(&key)?;
             }
-            mem::drop(session);
         }
 
-        Ok(())
+        session.delete(&Key::TxnActive(self.txn_id).encode())
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
@@ -195,11 +194,9 @@ impl Transaction {
         }
         std::mem::drop(scan);
         
-        let update = Key::TxnUpdate(self.txn_id, key.into()).encode();
-        println!("update = {:?}", update);
         let record = Key::Record(key.into(), self.txn_id).encode();
+        let update = Key::TxnUpdate(self.txn_id, (&record).into()).encode();
         session.set(&update, vec![])?;
-        println!("recore = {:?}", record);
         session.set(&record, serialize(&value)?)
     }
 
@@ -429,10 +426,7 @@ fn deserialize<'a, V: Deserialize<'a>>(bytes: &'a [u8]) -> Result<V> {
 
 #[cfg(test)]
 mod test {
-    use log::RecordBuilder;
     use memory::Memory;
-
-    use crate::sql::storage::kv::kv::Txn;
 
     use super::*;
     use std::{env, vec};
@@ -448,75 +442,31 @@ mod test {
         assert_eq!(txn.id(), 1);
         let key = "key".as_bytes();
         txn.set(key, vec![0x01]);
-
-        let val = txn.get(key)?.unwrap();
-        let version = txn.storage
-            .read()?
-            .get(&Key::TxnUpdate(1, Cow::Borrowed(key)).encode())?.unwrap();
-        assert_eq!(txn.id(), 1);
-        assert_eq!(val, vec![0x01]);
-
-        let record = txn.storage
-            .read()?
-            .get(&Key::Record(Cow::Borrowed(key), 1).encode())?
-            .map(|val| deserialize::<Option<Vec<u8>>>(&val))
-            .transpose()?
-            .unwrap();
-        println!("record1 = {:?}", record.unwrap());
-
-        let record = txn.storage
-            .read()?
-            .get(&Key::TxnActive(1).encode())?;
-        println!("record2 = {:?}", record.unwrap());
-
         txn.commit()?;
 
+        let val = txn.get(key)?.unwrap();
+        assert_eq!(val, vec![0x01]);
+
         let mut txn2 = mvcc.begin()?;
-        assert_eq!(txn2.id(), 2);
-
-        let record = txn2.storage
-            .read()?
-            .get(&Key::TxnActive(2).encode())?;
-        println!("record5 = {:?}", record.unwrap());
-
-        assert_eq!(txn2.snapshot.version, 2);
         txn2.set(key, vec![0x10]);
+        assert_eq!(txn2.get(key)?, Some(vec![0x10]));
         txn2.commit()?;
 
 
         let mut txn3 = mvcc.begin()?;
+        txn3.set(key, vec![0x20]);
+        assert_eq!(txn3.get(key)?, Some(vec![0x20]));
+        txn3.commit()?;
+        txn3.rollback()?;
+        
+        
+
         let mut txn4 = mvcc.begin()?;
+        assert_eq!(txn4.get(key)?, Some(vec![0x10]));
+
         let mut txn5 = mvcc.begin()?;
+
         let mut txn6 = mvcc.begin()?;
-        Ok(())
-    }
-
-    #[test]
-    fn encode_test() -> Result<()> {
-        let mvcc = setup();
-
-        let mut txn = mvcc.begin()?;
-        let recore = Key::Record(Cow::Owned(vec![0x00, 0x01, 0x03]), 1);
-        let encode = recore.encode();
-        txn.set(&encode, vec![0x01])?;
-
-        let recore = Key::Record(Cow::Owned(vec![0x00, 0x01, 0x03]), 2);
-        let encode = recore.encode();
-        txn.set(&encode, vec![0x02])?;
-
-        let recore = Key::Record(Cow::Owned(vec![0x00, 0x01, 0x03]), 3);
-        let encode = recore.encode();
-        txn.set(&encode, vec![0x03])?;
-
-        let recore = Key::Record(Cow::Owned(vec![0x00, 0x01, 0x03]), 4);
-        let encode = recore.encode();
-        txn.set(&encode, vec![0x04])?;
-        assert_eq!(txn.get(&encode)?.unwrap(), vec![0x04]);
-
-        let mut txn2 = mvcc.begin()?;
-        println!("here");
-        txn2.set(&encode, vec![0x05])?;
-        assert!(txn2.get(&encode)?.is_none());
 
         Ok(())
     }
